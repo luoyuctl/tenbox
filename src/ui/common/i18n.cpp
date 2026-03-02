@@ -97,6 +97,16 @@ static const char* kStringsEn[] = {
     "About...",                              // kMenuAbout
     "About " TENBOX_PRODUCT_NAME,            // kAboutTitle
     TENBOX_PRODUCT_NAME " Manager\nVersion " TENBOX_VERSION_STR "\n\nA lightweight virtual machine manager for Windows.\n\n" TENBOX_COPYRIGHT,  // kAboutText
+    "Virtualization Not Enabled",             // kHvCheckTitle
+    "Windows Hypervisor Platform is not enabled.\n\nTenBox requires this feature to run virtual machines.\nWould you like to enable it now?",  // kHvCheckMessage
+    "Windows Hypervisor Platform is not available on this system.\n\nPlease make sure you are running Windows 10 version 1803 or later\nand that hardware virtualization (VT-x/AMD-V) is enabled in BIOS.",  // kHvNoDllMessage
+    "Enable Automatically",                   // kHvBtnAutoEnable
+    "Open Windows Features",                  // kHvBtnManualOpen
+    "Continue Anyway",                        // kHvBtnIgnore
+    "Restart Required",                       // kHvEnableSuccessTitle
+    "The virtualization platform has been enabled.\nYour computer must be restarted for the change to take effect.\n\nRestart now?",  // kHvEnableSuccessMsg
+    "Enable Failed",                          // kHvEnableFailTitle
+    "Failed to enable Windows Hypervisor Platform.\nPlease try enabling it manually via Windows Features.",  // kHvEnableFailMsg
     "Tag",                                   // kSfColTag
     "Host Path",                             // kSfColHostPath
     "Mode",                                  // kSfColMode
@@ -198,6 +208,16 @@ static const char* kStringsZhCN[] = {
     "关于...",                               // kMenuAbout
     "关于 " TENBOX_PRODUCT_NAME,             // kAboutTitle
     TENBOX_PRODUCT_NAME " 管理器\n版本 " TENBOX_VERSION_STR "\n\n一款轻量级的 Windows 虚拟机管理器。\n\n" TENBOX_COPYRIGHT,  // kAboutText
+    "未启用虚拟化",                          // kHvCheckTitle
+    "虚拟机平台尚未启用。\n\nTenBox 需要此功能才能运行虚拟机。\n是否立即启用？",  // kHvCheckMessage
+    "此系统不支持虚拟机平台。\n\n请确保您运行的是 Windows 10 1803 或更高版本，\n并且已在 BIOS 中启用硬件虚拟化（VT-x/AMD-V）。",  // kHvNoDllMessage
+    "自动启用",                              // kHvBtnAutoEnable
+    "打开 Windows 功能",                     // kHvBtnManualOpen
+    "暂时跳过",                              // kHvBtnIgnore
+    "需要重启",                              // kHvEnableSuccessTitle
+    "虚拟机平台已启用。\n需要重启计算机才能生效。\n\n是否立即重启？",  // kHvEnableSuccessMsg
+    "启用失败",                              // kHvEnableFailTitle
+    "无法自动启用虚拟机平台。\n请尝试通过 Windows 功能手动启用。",  // kHvEnableFailMsg
     "标签",                                  // kSfColTag
     "主机路径",                              // kSfColHostPath
     "模式",                                  // kSfColMode

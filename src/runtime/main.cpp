@@ -170,7 +170,10 @@ int main(int argc, char* argv[]) {
 
     auto vm = Vm::Create(config);
     if (!vm) {
-        if (control) control->PublishState("crashed", 1);
+        if (control) {
+            control->PublishState("crashed", 1);
+            control->Stop();
+        }
         fprintf(stderr, "Failed to create VM\n");
         return 1;
     }

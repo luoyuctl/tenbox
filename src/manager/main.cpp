@@ -1,11 +1,14 @@
 #include "manager/manager_service.h"
 #include "manager/app_settings.h"
+#include "ui/common/i18n.h"
 #include "version.h"
 
 #include "ui/win32/win32_ui_shell.h"
 using UiShell = Win32UiShell;
 
 #include <windows.h>
+#include <commctrl.h>
+#include <shellapi.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -49,6 +52,134 @@ static bool ActivateExistingInstance() {
     return false;
 }
 
+enum class HvStatus { kAvailable, kNoDll, kNotEnabled };
+
+static HvStatus CheckHypervisorStatus() {
+    HMODULE hMod = LoadLibraryW(L"WinHvPlatform.dll");
+    if (!hMod) return HvStatus::kNoDll;
+
+    // WHV_CAPABILITY_CODE 0x0000 = WHvCapabilityCodeHypervisorPresent
+    using GetCapFn = HRESULT(WINAPI*)(int, void*, UINT32, UINT32*);
+    auto pGetCap = reinterpret_cast<GetCapFn>(
+        GetProcAddress(hMod, "WHvGetCapability"));
+    if (!pGetCap) {
+        FreeLibrary(hMod);
+        return HvStatus::kNoDll;
+    }
+
+    struct { BOOL HypervisorPresent; } cap{};
+    UINT32 written = 0;
+    HRESULT hr = pGetCap(0, &cap, sizeof(cap), &written);
+    FreeLibrary(hMod);
+    if (SUCCEEDED(hr) && cap.HypervisorPresent)
+        return HvStatus::kAvailable;
+    return HvStatus::kNotEnabled;
+}
+
+static bool EnableHypervisorPlatform() {
+    SHELLEXECUTEINFOW sei{};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = L"dism.exe";
+    sei.lpParameters =
+        L"/online /enable-feature "
+        L"/featurename:HypervisorPlatform "
+        L"/featurename:VirtualMachinePlatform "
+        L"/all /norestart";
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei))
+        return false;
+
+    if (sei.hProcess) {
+        WaitForSingleObject(sei.hProcess, INFINITE);
+        DWORD exitCode = 1;
+        GetExitCodeProcess(sei.hProcess, &exitCode);
+        CloseHandle(sei.hProcess);
+        // 3010 = ERROR_SUCCESS_REBOOT_REQUIRED
+        return exitCode == 0 || exitCode == 3010;
+    }
+    return false;
+}
+
+// Returns true if the application should continue, false if it should exit.
+static bool CheckHypervisorAndPrompt() {
+    HvStatus status = CheckHypervisorStatus();
+    if (status == HvStatus::kAvailable)
+        return true;
+
+    if (status == HvStatus::kNoDll) {
+        MessageBoxA(nullptr,
+            i18n::tr(i18n::S::kHvNoDllMessage),
+            i18n::tr(i18n::S::kHvCheckTitle),
+            MB_OK | MB_ICONERROR);
+        return true;
+    }
+
+    const auto title = i18n::to_wide(i18n::tr(i18n::S::kHvCheckTitle));
+    const auto message = i18n::to_wide(i18n::tr(i18n::S::kHvCheckMessage));
+    const auto btnAuto = i18n::to_wide(i18n::tr(i18n::S::kHvBtnAutoEnable));
+    const auto btnManual = i18n::to_wide(i18n::tr(i18n::S::kHvBtnManualOpen));
+    const auto btnIgnore = i18n::to_wide(i18n::tr(i18n::S::kHvBtnIgnore));
+
+    TASKDIALOG_BUTTON buttons[] = {
+        { 1001, btnAuto.c_str() },
+        { 1002, btnManual.c_str() },
+        { 1003, btnIgnore.c_str() },
+    };
+
+    TASKDIALOGCONFIG tdc{};
+    tdc.cbSize = sizeof(tdc);
+    tdc.dwFlags = TDF_USE_COMMAND_LINKS;
+    tdc.pszWindowTitle = title.c_str();
+    tdc.pszMainIcon = TD_WARNING_ICON;
+    tdc.pszContent = message.c_str();
+    tdc.cButtons = _countof(buttons);
+    tdc.pButtons = buttons;
+    tdc.nDefaultButton = 1001;
+
+    int clicked = 0;
+    HRESULT hr = TaskDialogIndirect(&tdc, &clicked, nullptr, nullptr);
+    if (FAILED(hr))
+        return true;
+
+    if (clicked == 1001) {
+        if (EnableHypervisorPlatform()) {
+            int answer = MessageBoxA(nullptr,
+                i18n::tr(i18n::S::kHvEnableSuccessMsg),
+                i18n::tr(i18n::S::kHvEnableSuccessTitle),
+                MB_YESNO | MB_ICONINFORMATION);
+            if (answer == IDYES) {
+                // InitiateSystemShutdownEx with EWX_REBOOT flag
+                HANDLE hToken;
+                if (OpenProcessToken(GetCurrentProcess(),
+                        TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+                    TOKEN_PRIVILEGES tp{};
+                    LookupPrivilegeValueA(nullptr, "SeShutdownPrivilege",
+                                          &tp.Privileges[0].Luid);
+                    tp.PrivilegeCount = 1;
+                    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                    AdjustTokenPrivileges(hToken, FALSE, &tp, 0, nullptr, nullptr);
+                    CloseHandle(hToken);
+                }
+                ExitWindowsEx(EWX_REBOOT | EWX_FORCEIFHUNG, SHTDN_REASON_MINOR_OTHER);
+            }
+            return false;
+        } else {
+            MessageBoxA(nullptr,
+                i18n::tr(i18n::S::kHvEnableFailMsg),
+                i18n::tr(i18n::S::kHvEnableFailTitle),
+                MB_OK | MB_ICONERROR);
+        }
+    } else if (clicked == 1002) {
+        ShellExecuteA(nullptr, "open", "optionalfeatures.exe",
+                      nullptr, nullptr, SW_SHOWNORMAL);
+        return false;
+    }
+    return true;
+}
+
 int main(int argc, char* argv[]) {
     HANDLE hMutex = CreateMutexA(nullptr, FALSE, kMutexName);
     if (hMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
@@ -79,6 +210,12 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "runtime executable not found: %s\n", runtime_exe.c_str());
         PrintUsage(argv[0], ResolveDefaultRuntimeExePath().c_str());
         return 1;
+    }
+
+    i18n::InitLanguage();
+    if (!CheckHypervisorAndPrompt()) {
+        if (hMutex) CloseHandle(hMutex);
+        return 0;
     }
 
     std::string data_dir = settings::GetDataDir();

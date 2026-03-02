@@ -141,6 +141,18 @@ enum class S {
     kAboutTitle,
     kAboutText,
 
+    // Hypervisor check
+    kHvCheckTitle,
+    kHvCheckMessage,
+    kHvNoDllMessage,
+    kHvBtnAutoEnable,
+    kHvBtnManualOpen,
+    kHvBtnIgnore,
+    kHvEnableSuccessTitle,
+    kHvEnableSuccessMsg,
+    kHvEnableFailTitle,
+    kHvEnableFailMsg,
+
     // Shared folders tab
     kSfColTag,
     kSfColHostPath,

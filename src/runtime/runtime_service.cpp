@@ -401,7 +401,8 @@ bool RuntimeControlService::Start() {
                     });
                 }
 
-                if (!running_) {
+                if (!running_ && console_queue_.empty() &&
+                    frame_queue_.empty() && audio_queue_.empty()) {
                     break;
                 }
 
@@ -475,15 +476,19 @@ void RuntimeControlService::Stop() {
     running_ = false;
     send_cv_.notify_all();
 
+    // Let the send thread drain remaining queued messages before closing
+    // the pipe, so final state updates (e.g. "crashed") reach the manager.
+    if (send_thread_.joinable()) {
+        send_thread_.join();
+    }
+
     HANDLE h = AsHandle(pipe_handle_);
     if (h && h != INVALID_HANDLE_VALUE) {
+        FlushFileBuffers(h);
         CancelIoEx(h, nullptr);
         DisconnectNamedPipe(h);
         CloseHandle(h);
         pipe_handle_ = nullptr;
-    }
-    if (send_thread_.joinable()) {
-        send_thread_.join();
     }
     if (recv_thread_.joinable()) {
         recv_thread_.join();

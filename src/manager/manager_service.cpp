@@ -460,6 +460,7 @@ bool ManagerService::StopVm(const std::string& vm_id, std::string* error) {
     HANDLE process_handle = nullptr;
     std::thread read_thread_to_join;
     HANDLE pipe_handle = nullptr;
+    bool crashed = false;
     
     {
         std::lock_guard<std::mutex> lock(vms_mutex_);
@@ -471,18 +472,21 @@ bool ManagerService::StopVm(const std::string& vm_id, std::string* error) {
         VmRecord& vm = *vmp;
         if (vm.state == VmPowerState::kStopped) return true;
 
+        crashed = (vm.state == VmPowerState::kCrashed);
         vm.state = VmPowerState::kStopping;
         process_handle = reinterpret_cast<HANDLE>(vm.runtime.process_handle);
         pipe_handle = reinterpret_cast<HANDLE>(vm.runtime.pipe_handle);
-        
-        ipc::Message msg;
-        msg.channel = ipc::Channel::kControl;
-        msg.kind = ipc::Kind::kRequest;
-        msg.type = "runtime.command";
-        msg.vm_id = vm_id;
-        msg.request_id = GetTickCount64();
-        msg.fields["command"] = "stop";
-        SendRuntimeMessage(vm, msg);
+
+        if (!crashed && pipe_handle) {
+            ipc::Message msg;
+            msg.channel = ipc::Channel::kControl;
+            msg.kind = ipc::Kind::kRequest;
+            msg.type = "runtime.command";
+            msg.vm_id = vm_id;
+            msg.request_id = GetTickCount64();
+            msg.fields["command"] = "stop";
+            SendRuntimeMessage(vm, msg);
+        }
 
         // Stop read thread: set flag and cancel IO (inside lock)
         if (vm.runtime.read_thread.joinable()) {
@@ -497,7 +501,7 @@ bool ManagerService::StopVm(const std::string& vm_id, std::string* error) {
 
     // Wait for process and join read thread outside the lock
     if (process_handle) {
-        WaitForSingleObject(process_handle, 3000);
+        WaitForSingleObject(process_handle, crashed ? 500 : 3000);
     }
     if (read_thread_to_join.joinable()) {
         read_thread_to_join.join();
@@ -1162,15 +1166,19 @@ void ManagerService::HandleProcessExit(const std::string& vm_id) {
         std::lock_guard<std::mutex> lock(vms_mutex_);
         VmRecord* vmp = FindVm(vm_id);
         if (!vmp) return;
-        if (vmp->state != VmPowerState::kRunning &&
-            vmp->state != VmPowerState::kStopping) return;
+        if (vmp->state == VmPowerState::kStopped) return;
         VmRecord& vm = *vmp;
+        bool was_crashed = (vm.state == VmPowerState::kCrashed);
         CleanupRuntimeHandles(vm);
-        // Exit code 128 indicates a reboot request from the guest
         needs_reboot = vm.reboot_pending || (vm.last_exit_code == 128);
         vm.reboot_pending = false;
         vm.guest_agent_connected = false;
-        vm.state = VmPowerState::kStopped;
+        // Preserve kCrashed if runtime already reported it via IPC;
+        // otherwise fall back to exit-code heuristic.
+        if (!was_crashed) {
+            vm.state = (vm.last_exit_code != 0)
+                ? VmPowerState::kCrashed : VmPowerState::kStopped;
+        }
         cb = state_change_callback_;
     }
     if (cb) cb(vm_id);
@@ -1365,22 +1373,27 @@ void ManagerService::HandleIncomingMessage(const std::string& vm_id, const ipc::
         msg.type == "runtime.state") {
         auto it = msg.fields.find("state");
         if (it != msg.fields.end()) {
-            std::lock_guard<std::mutex> lock(vms_mutex_);
-            VmRecord* vm = FindVm(vm_id);
-            if (vm) {
-                const std::string& state_str = it->second;
-                if (state_str == "running") {
-                    vm->state = VmPowerState::kRunning;
-                } else if (state_str == "starting") {
-                    vm->state = VmPowerState::kStarting;
-                } else if (state_str == "stopped") {
-                    vm->state = VmPowerState::kStopped;
-                } else if (state_str == "crashed") {
-                    vm->state = VmPowerState::kCrashed;
-                } else if (state_str == "rebooting") {
-                    vm->reboot_pending = true;
+            StateChangeCallback cb;
+            {
+                std::lock_guard<std::mutex> lock(vms_mutex_);
+                VmRecord* vm = FindVm(vm_id);
+                if (vm) {
+                    const std::string& state_str = it->second;
+                    if (state_str == "running") {
+                        vm->state = VmPowerState::kRunning;
+                    } else if (state_str == "starting") {
+                        vm->state = VmPowerState::kStarting;
+                    } else if (state_str == "stopped") {
+                        vm->state = VmPowerState::kStopped;
+                    } else if (state_str == "crashed") {
+                        vm->state = VmPowerState::kCrashed;
+                    } else if (state_str == "rebooting") {
+                        vm->reboot_pending = true;
+                    }
+                    cb = state_change_callback_;
                 }
             }
+            if (cb) cb(vm_id);
         }
         return;
     }
