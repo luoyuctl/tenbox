@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -168,6 +169,7 @@ private:
     void ApplyPendingPatchLocked(VmRecord& vm);
     void LoadVms();
     void SaveVmPaths();
+    void SaveVmPathsLocked();  // caller must hold vms_mutex_
     void StartReadThread(const std::string& vm_id, VmRecord& vm);
     void StopReadThread(VmRecord& vm);
     void PipeReadThreadFunc(const std::string& vm_id);
@@ -182,8 +184,9 @@ private:
     std::string runtime_exe_path_;
     std::string data_dir_;
     settings::AppSettings settings_;
-    std::vector<VmRecord> vms_;
-    std::mutex vms_mutex_;
+    std::map<std::string, VmRecord> vms_;
+    std::vector<std::string> vm_order_;
+    mutable std::mutex vms_mutex_;
     ConsoleCallback console_callback_;
     StateChangeCallback state_change_callback_;
     DisplayCallback display_callback_;

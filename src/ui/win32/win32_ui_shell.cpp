@@ -726,15 +726,10 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 std::string error;
                 if (shell->manager_.DeleteVm(vm_id, &error)) {
                     p->vm_ui_states.erase(vm_id);
+                    p->selected_index = -1;
+                    p->display_available = false;
                     shell->RefreshVmList();
-                    if (p->records.empty()) {
-                        LayoutControls(p);
-                    } else {
-                        int new_sel = p->selected_index;
-                        p->selected_index = -1;
-                        ListView_SetItemState(p->vm_listview.handle(), new_sel,
-                            LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-                    }
+                    LayoutControls(p);
                     SendMessageA(p->statusbar, SB_SETTEXTA, 0,
                         reinterpret_cast<LPARAM>(i18n::tr(i18n::S::kStatusVmDeleted)));
                 } else {
@@ -1199,6 +1194,30 @@ Win32UiShell::Win32UiShell(ManagerService& manager)
 }
 
 Win32UiShell::~Win32UiShell() {
+    // Clear all callbacks so background threads won't invoke into a
+    // partially-destroyed UI shell.
+    manager_.SetConsoleCallback(nullptr);
+    manager_.SetStateChangeCallback(nullptr);
+    manager_.SetDisplayCallback(nullptr);
+    manager_.SetCursorCallback(nullptr);
+    manager_.SetDisplayStateCallback(nullptr);
+    manager_.SetClipboardGrabCallback(nullptr);
+    manager_.SetClipboardDataCallback(nullptr);
+    manager_.SetClipboardRequestCallback(nullptr);
+    manager_.SetAudioPcmCallback(nullptr);
+    manager_.SetGuestAgentStateCallback(nullptr);
+
+    // Stop all VMs and join their read threads so no background thread
+    // can still be executing a previously-copied callback closure that
+    // captured our `this`.
+    manager_.ShutdownAll();
+
+    // Drain pending invoke queue to avoid calling stale closures.
+    {
+        std::lock_guard<std::mutex> lock(g_invoke_mutex);
+        g_invoke_queue.clear();
+    }
+
     if (impl_->hwnd) {
         RemoveClipboardFormatListener(impl_->hwnd);
     }
@@ -1257,7 +1276,8 @@ void Win32UiShell::RefreshVmList() {
     impl_->records = manager_.ListVms();
 
     if (impl_->selected_index >= static_cast<int>(impl_->records.size())) {
-        impl_->selected_index = static_cast<int>(impl_->records.size()) - 1;
+        impl_->selected_index = impl_->records.empty() ? -1 :
+            static_cast<int>(impl_->records.size()) - 1;
     }
 
     impl_->vm_listview.Populate(impl_->records, impl_->selected_index);
