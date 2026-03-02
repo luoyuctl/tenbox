@@ -18,7 +18,7 @@
         </p>
         <p class="hero-desc">{{ $t('hero.description') }}</p>
         <div class="hero-actions">
-          <a href="https://tenbox.ai/downloads/TenBox-0.1.0.msi" class="btn btn-large btn-hero">
+          <a :href="downloadUrl" class="btn btn-large btn-hero">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
@@ -27,7 +27,7 @@
             {{ $t('hero.cta') }}
           </a>
         </div>
-        <p class="hero-meta">{{ $t('hero.version') }} · {{ $t('hero.requirements') }}</p>
+        <p class="hero-meta">v{{ latestVersion }} · {{ $t('hero.requirements') }}</p>
       </div>
     </div>
   </section>
@@ -38,6 +38,9 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { tm, locale } = useI18n()
+
+const downloadUrl = ref('https://tenbox.ai/downloads/TenBox-0.1.0.msi')
+const latestVersion = ref('0.1.0')
 
 const displayText = ref('')
 let timerId = null
@@ -98,8 +101,22 @@ function reset() {
   timerId = setTimeout(tick, TYPING_SPEED)
 }
 
+async function fetchVersionInfo() {
+  try {
+    const res = await fetch('/api/version.json')
+    if (res.ok) {
+      const data = await res.json()
+      if (data.download_url) downloadUrl.value = data.download_url
+      if (data.latest_version) latestVersion.value = data.latest_version
+    }
+  } catch {
+    // fall back to defaults
+  }
+}
+
 onMounted(() => {
   reset()
+  fetchVersionInfo()
 })
 
 onUnmounted(() => {

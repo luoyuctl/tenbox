@@ -1,6 +1,7 @@
 build/
 out/
 .deps/
+.wix/
 .vs/
 .vscode/
 *.obj
@@ -8,6 +9,7 @@ out/
 *.pdb
 *.ilk
 *.log
+*.msi
 images/
 CMakePresets.json
 
