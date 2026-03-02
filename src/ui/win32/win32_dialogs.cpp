@@ -63,7 +63,11 @@ static std::string FindShareFile(const std::string& exe_dir, const char* filenam
     namespace fs = std::filesystem;
     for (const char* prefix : {"share\\", "..\\share\\"}) {
         auto path = fs::path(exe_dir) / prefix / filename;
-        if (fs::exists(path)) return path.string();
+        if (fs::exists(path)) {
+            std::error_code ec;
+            auto canon = fs::canonical(path, ec);
+            return ec ? path.string() : canon.string();
+        }
     }
     return {};
 }
@@ -239,11 +243,31 @@ static std::string BrowseForFile(HWND owner, const char* filter, const char* cur
     return {};
 }
 
-static std::string BrowseForFolder(HWND owner, const char* title) {
+static int CALLBACK BrowseFolderCallback(HWND hwnd, UINT msg, LPARAM, LPARAM data) {
+    if (msg == BFFM_INITIALIZED && data)
+        SendMessageA(hwnd, BFFM_SETSELECTIONA, TRUE, data);
+    return 0;
+}
+
+static std::string BrowseForFolder(HWND owner, const char* title, const char* current_path) {
+    std::string init_dir;
+    if (current_path && *current_path) {
+        namespace fs = std::filesystem;
+        fs::path p(current_path);
+        if (fs::is_directory(p))
+            init_dir = p.string();
+        else if (p.has_parent_path())
+            init_dir = p.parent_path().string();
+    }
+
     BROWSEINFOA bi{};
     bi.hwndOwner = owner;
     bi.lpszTitle = title;
     bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    if (!init_dir.empty()) {
+        bi.lpfn = BrowseFolderCallback;
+        bi.lParam = reinterpret_cast<LPARAM>(init_dir.c_str());
+    }
 
     LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
     if (pidl) {
@@ -310,7 +334,8 @@ static INT_PTR CALLBACK CreateDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) 
             return TRUE;
         }
         case IDC_CR_BR_LOC: {
-            auto path = BrowseForFolder(dlg, i18n::tr(i18n::S::kDlgLabelLocation));
+            auto cur = GetDlgText(dlg, IDC_CR_LOCATION);
+            auto path = BrowseForFolder(dlg, i18n::tr(i18n::S::kDlgLabelLocation), cur.c_str());
             if (!path.empty()) SetDlgItemTextA(dlg, IDC_CR_LOCATION, path.c_str());
             return TRUE;
         }
@@ -626,18 +651,8 @@ static INT_PTR CALLBACK SfDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_COMMAND:
         switch (LOWORD(wp)) {
         case IDC_SF_ADD: {
-            BROWSEINFOA bi{};
-            bi.hwndOwner = dlg;
-            bi.lpszTitle = i18n::tr(i18n::S::kSfBrowseTitle);
-            bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-
-            LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
-            if (pidl) {
-                char path_buf[MAX_PATH]{};
-                SHGetPathFromIDListA(pidl, path_buf);
-                CoTaskMemFree(pidl);
-
-                std::string path_str(path_buf);
+            auto path_str = BrowseForFolder(dlg, i18n::tr(i18n::S::kSfBrowseTitle), nullptr);
+            if (!path_str.empty()) {
                 size_t last_sep = path_str.find_last_of("\\/");
                 std::string tag = (last_sep != std::string::npos)
                     ? path_str.substr(last_sep + 1) : "share";
@@ -645,7 +660,7 @@ static INT_PTR CALLBACK SfDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
 
                 SharedFolder sf;
                 sf.tag = tag;
-                sf.host_path = path_buf;
+                sf.host_path = path_str;
                 sf.readonly = false;
 
                 std::string error;
