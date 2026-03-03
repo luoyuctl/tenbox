@@ -273,7 +273,7 @@ static const char* kStringsZhCN[] = {
     "发现新版本",                            // kUpdateAvailableTitle
     "新版本 %s 已发布（当前版本: %s）。\n\n%s\n\n是否立即更新？",  // kUpdateAvailableMsg
     "立即更新",                              // kUpdateNow
-    "暂不更新",                              // kUpdateSkip
+    "跳过本次",                              // kUpdateSkip
     "正在下载更新...",                       // kUpdateDownloading
     "正在下载... %d%%",                      // kUpdateDownloadProgress
     "下载更新失败：%s",                      // kUpdateDownloadFailed
