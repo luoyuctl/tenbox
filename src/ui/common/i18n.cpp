@@ -145,6 +145,7 @@ static const char* kStringsEn[] = {
     "Back",                                  // kImgBtnBack
     "Retry",                                 // kImgBtnRetry
     "Load",                                  // kImgBtnLoad
+    "Refresh",                               // kImgBtnRefresh
     "Delete Cache",                          // kImgBtnDeleteCache
     "Image Source:",                         // kImgSource
     "No description available.",             // kImgNoDescription
@@ -299,6 +300,7 @@ static const char* kStringsZhCN[] = {
     "上一步",                                // kImgBtnBack
     "重试",                                  // kImgBtnRetry
     "加载",                                  // kImgBtnLoad
+    "刷新",                                  // kImgBtnRefresh
     "删除缓存",                              // kImgBtnDeleteCache
     "镜像源:",                               // kImgSource
     "暂无描述信息。",                        // kImgNoDescription

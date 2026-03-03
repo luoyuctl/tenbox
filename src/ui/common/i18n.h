@@ -196,6 +196,7 @@ enum class S {
     kImgBtnBack,
     kImgBtnRetry,
     kImgBtnLoad,
+    kImgBtnRefresh,
     kImgBtnDeleteCache,
     kImgSource,
     kImgNoDescription,

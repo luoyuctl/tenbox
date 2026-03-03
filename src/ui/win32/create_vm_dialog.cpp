@@ -359,6 +359,7 @@ static void FetchSources(DialogData* data) {
 
     data->loading_sources = true;
     data->download_error.clear();
+    EnableWindow(GetDlgItem(data->dlg, IDC_BTN_LOAD), FALSE);
     RefreshImageList(data);
 
     HWND dlg = data->dlg;
@@ -409,6 +410,7 @@ static void FetchOnlineImages(DialogData* data) {
     data->online_images.clear();
     data->download_error.clear();
     data->selected_index = -1;
+    EnableWindow(GetDlgItem(data->dlg, IDC_BTN_LOAD), FALSE);
     RefreshImageList(data);
 
     HWND dlg = data->dlg;
@@ -498,11 +500,21 @@ static LRESULT CALLBACK DlgSubclassProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp
     DialogData* data = reinterpret_cast<DialogData*>(ref);
 
     switch (msg) {
+    case WM_SETCURSOR:
+        if (data->loading_sources || data->loading_online) {
+            SetCursor(LoadCursor(nullptr, IDC_APPSTARTING));
+            return TRUE;
+        }
+        break;
+
     case WM_SOURCES_COMPLETE: {
         data->loading_sources = false;
         data->sources_loaded = (wp == 1);
         if (data->sources_loaded) {
             PopulateSourceCombo(data);
+            FetchOnlineImages(data);
+        } else {
+            EnableWindow(GetDlgItem(dlg, IDC_BTN_LOAD), TRUE);
         }
         RefreshImageList(data);
         ShowWindow(GetDlgItem(dlg, IDC_BTN_RETRY),
@@ -514,6 +526,7 @@ static LRESULT CALLBACK DlgSubclassProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp
         data->loading_online = false;
         data->online_loaded = (wp == 1);
         RefreshImageList(data);
+        EnableWindow(GetDlgItem(dlg, IDC_BTN_LOAD), TRUE);
         ShowWindow(GetDlgItem(dlg, IDC_BTN_RETRY),
             (!data->online_loaded && !data->download_error.empty()) ? SW_SHOW : SW_HIDE);
         return 0;
@@ -604,6 +617,7 @@ static LRESULT CALLBACK DlgSubclassProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp
                 data->online_loaded = false;
                 data->online_images.clear();
                 data->selected_index = -1;
+                data->download_error.clear();
                 EnableWindow(GetDlgItem(dlg, IDC_BTN_NEXT), FALSE);
                 EnableWindow(GetDlgItem(dlg, IDC_BTN_DELETE_CACHE), FALSE);
                 FetchOnlineImages(data);
@@ -891,7 +905,7 @@ bool ShowCreateVmDialog2(HWND parent, ManagerService& mgr, std::string* error) {
         combo_x, top_ctrl_y, combo_w, 200,
         dlg, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_SOURCE_COMBO)), nullptr, nullptr);
 
-    CreateWindowExA(0, "BUTTON", i18n::tr(i18n::S::kImgBtnLoad),
+    CreateWindowExA(0, "BUTTON", i18n::tr(i18n::S::kImgBtnRefresh),
         WS_CHILD | BS_PUSHBUTTON,
         w - margin - load_btn_w, top_ctrl_y, load_btn_w, btn_h,
         dlg, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_BTN_LOAD)), nullptr, nullptr);
