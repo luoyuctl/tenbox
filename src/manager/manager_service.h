@@ -141,6 +141,12 @@ public:
     void SetGuestAgentStateCallback(GuestAgentStateCallback cb);
     bool IsGuestAgentConnected(const std::string& vm_id) const;
 
+    // Port forward error callback: when host ports fail to bind
+    // failed_mappings format: "host_port:guest_port" for each failed binding
+    using PortForwardErrorCallback = std::function<void(const std::string& vm_id,
+        const std::vector<std::string>& failed_mappings)>;
+    void SetPortForwardErrorCallback(PortForwardErrorCallback cb);
+
     bool SendKeyEvent(const std::string& vm_id, uint32_t key_code, bool pressed);
     bool SendPointerEvent(const std::string& vm_id, int32_t x, int32_t y, uint32_t buttons);
     bool SendWheelEvent(const std::string& vm_id, int32_t delta);
@@ -157,6 +163,11 @@ public:
     bool AddSharedFolder(const std::string& vm_id, const SharedFolder& folder, std::string* error);
     bool RemoveSharedFolder(const std::string& vm_id, const std::string& tag, std::string* error);
     std::vector<SharedFolder> GetSharedFolders(const std::string& vm_id) const;
+
+    // Port forward management
+    bool AddPortForward(const std::string& vm_id, const PortForward& forward, std::string* error);
+    bool RemovePortForward(const std::string& vm_id, uint16_t host_port, std::string* error);
+    std::vector<PortForward> GetPortForwards(const std::string& vm_id) const;
 
 private:
     VmRecord* FindVm(const std::string& vm_id);
@@ -197,5 +208,6 @@ private:
     ClipboardRequestCallback clipboard_request_callback_;
     AudioPcmCallback audio_pcm_callback_;
     GuestAgentStateCallback guest_agent_state_callback_;
+    PortForwardErrorCallback port_forward_error_callback_;
     void* job_object_ = nullptr;
 };

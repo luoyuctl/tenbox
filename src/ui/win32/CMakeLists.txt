@@ -3,6 +3,7 @@ add_library(tenbox_ui_shell_win32 STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/win32/win32_dialogs.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/win32/create_vm_dialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/win32/win32_display_panel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/win32/dialogs/port_forward_dialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/win32/components/info_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/win32/components/console_tab.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/win32/components/vm_listview.cpp

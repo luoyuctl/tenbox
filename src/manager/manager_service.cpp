@@ -71,9 +71,8 @@ std::string BuildRuntimeCommand(const std::string& exe, const VmSpec& spec, cons
     if (spec.nat_enabled) {
         cmd << " --net";
     }
-    for (const auto& forward : spec.port_forwards) {
-        cmd << " --forward " << forward.host_port << ':' << forward.guest_port;
-    }
+    // Port forwards are now configured dynamically after VM starts (via IPC)
+    // to ensure uniform error feedback. The runtime CLI still supports --forward.
     for (const auto& sf : spec.shared_folders) {
         cmd << " --share \"" << sf.tag << ':' << sf.host_path;
         if (sf.readonly) cmd << ":ro";
@@ -773,6 +772,11 @@ void ManagerService::SetGuestAgentStateCallback(GuestAgentStateCallback cb) {
     guest_agent_state_callback_ = std::move(cb);
 }
 
+void ManagerService::SetPortForwardErrorCallback(PortForwardErrorCallback cb) {
+    std::lock_guard<std::mutex> lock(vms_mutex_);
+    port_forward_error_callback_ = std::move(cb);
+}
+
 bool ManagerService::IsGuestAgentConnected(const std::string& vm_id) const {
     std::lock_guard<std::mutex> lock(vms_mutex_);
     const VmRecord* vm = FindVm(vm_id);
@@ -1082,6 +1086,100 @@ std::vector<SharedFolder> ManagerService::GetSharedFolders(const std::string& vm
     return vm->spec.shared_folders;
 }
 
+bool ManagerService::AddPortForward(const std::string& vm_id, const PortForward& forward,
+                                     std::string* error) {
+    std::lock_guard<std::mutex> lock(vms_mutex_);
+    VmRecord* vmp = FindVm(vm_id);
+    if (!vmp) {
+        if (error) *error = "vm not found";
+        return false;
+    }
+    VmRecord& vm = *vmp;
+
+    if (forward.host_port == 0 || forward.guest_port == 0) {
+        if (error) *error = "invalid port number";
+        return false;
+    }
+
+    for (const auto& pf : vm.spec.port_forwards) {
+        if (pf.host_port == forward.host_port) {
+            if (error) *error = "host port " + std::to_string(forward.host_port) + " already in use";
+            return false;
+        }
+    }
+
+    vm.spec.port_forwards.push_back(forward);
+    settings::SaveVmManifest(vm.spec);
+
+    if (vm.state == VmPowerState::kRunning && vm.spec.nat_enabled) {
+        ipc::Message msg;
+        msg.channel = ipc::Channel::kControl;
+        msg.kind = ipc::Kind::kRequest;
+        msg.type = "runtime.update_network";
+        msg.vm_id = vm_id;
+        msg.request_id = GetTickCount64();
+        msg.fields["link_up"] = "true";
+        msg.fields["forward_count"] = std::to_string(vm.spec.port_forwards.size());
+        for (size_t i = 0; i < vm.spec.port_forwards.size(); ++i) {
+            msg.fields["forward_" + std::to_string(i)] =
+                std::to_string(vm.spec.port_forwards[i].host_port) + ":" +
+                std::to_string(vm.spec.port_forwards[i].guest_port);
+        }
+        SendRuntimeMessage(vm, msg);
+    }
+
+    return true;
+}
+
+bool ManagerService::RemovePortForward(const std::string& vm_id, uint16_t host_port,
+                                        std::string* error) {
+    std::lock_guard<std::mutex> lock(vms_mutex_);
+    VmRecord* vmp = FindVm(vm_id);
+    if (!vmp) {
+        if (error) *error = "vm not found";
+        return false;
+    }
+    VmRecord& vm = *vmp;
+
+    auto pf_it = std::find_if(vm.spec.port_forwards.begin(), vm.spec.port_forwards.end(),
+                              [host_port](const PortForward& pf) { return pf.host_port == host_port; });
+    if (pf_it == vm.spec.port_forwards.end()) {
+        if (error) *error = "port forward with host port " + std::to_string(host_port) + " not found";
+        return false;
+    }
+
+    vm.spec.port_forwards.erase(pf_it);
+    settings::SaveVmManifest(vm.spec);
+
+    if (vm.state == VmPowerState::kRunning && vm.spec.nat_enabled) {
+        ipc::Message msg;
+        msg.channel = ipc::Channel::kControl;
+        msg.kind = ipc::Kind::kRequest;
+        msg.type = "runtime.update_network";
+        msg.vm_id = vm_id;
+        msg.request_id = GetTickCount64();
+        msg.fields["link_up"] = "true";
+        msg.fields["forward_count"] = std::to_string(vm.spec.port_forwards.size());
+        for (size_t i = 0; i < vm.spec.port_forwards.size(); ++i) {
+            msg.fields["forward_" + std::to_string(i)] =
+                std::to_string(vm.spec.port_forwards[i].host_port) + ":" +
+                std::to_string(vm.spec.port_forwards[i].guest_port);
+        }
+        SendRuntimeMessage(vm, msg);
+    }
+
+    return true;
+}
+
+std::vector<PortForward> ManagerService::GetPortForwards(const std::string& vm_id) const {
+    std::lock_guard<std::mutex> lock(vms_mutex_);
+    const VmRecord* vm = FindVm(vm_id);
+    if (!vm) {
+        return {};
+    }
+    return vm->spec.port_forwards;
+}
+
 bool ManagerService::SendConsoleInput(const std::string& vm_id, const std::string& input) {
     HANDLE pipe = INVALID_HANDLE_VALUE;
     {
@@ -1271,6 +1369,50 @@ void ManagerService::PipeReadThreadFunc(const std::string& vm_id) {
 }
 
 void ManagerService::HandleIncomingMessage(const std::string& vm_id, const ipc::Message& msg) {
+    if (msg.channel == ipc::Channel::kControl &&
+        msg.kind == ipc::Kind::kResponse &&
+        msg.type == "runtime.update_network.result") {
+        auto it_ok = msg.fields.find("ok");
+        if (it_ok != msg.fields.end() && it_ok->second == "false") {
+            std::vector<uint16_t> failed_host_ports;
+            auto it_count = msg.fields.find("failed_count");
+            if (it_count != msg.fields.end()) {
+                int count = std::stoi(it_count->second);
+                for (int i = 0; i < count; ++i) {
+                    auto it_p = msg.fields.find("failed_" + std::to_string(i));
+                    if (it_p != msg.fields.end()) {
+                        failed_host_ports.push_back(static_cast<uint16_t>(std::stoi(it_p->second)));
+                    }
+                }
+            }
+            // Build formatted strings with host_port:guest_port
+            std::vector<std::string> failed_mappings;
+            PortForwardErrorCallback cb;
+            {
+                std::lock_guard<std::mutex> lock(vms_mutex_);
+                cb = port_forward_error_callback_;
+                VmRecord* vm = FindVm(vm_id);
+                if (vm) {
+                    for (uint16_t hp : failed_host_ports) {
+                        uint16_t gp = hp;  // default: same as host port
+                        for (const auto& pf : vm->spec.port_forwards) {
+                            if (pf.host_port == hp) {
+                                gp = pf.guest_port;
+                                break;
+                            }
+                        }
+                        failed_mappings.push_back(
+                            std::to_string(hp) + ":" + std::to_string(gp));
+                    }
+                }
+            }
+            if (cb && !failed_mappings.empty()) {
+                cb(vm_id, failed_mappings);
+            }
+        }
+        return;
+    }
+
     if (msg.channel == ipc::Channel::kConsole &&
         msg.kind == ipc::Kind::kEvent &&
         msg.type == "console.data") {
@@ -1374,6 +1516,8 @@ void ManagerService::HandleIncomingMessage(const std::string& vm_id, const ipc::
         auto it = msg.fields.find("state");
         if (it != msg.fields.end()) {
             StateChangeCallback cb;
+            std::vector<PortForward> forwards_to_send;
+            bool send_forwards = false;
             {
                 std::lock_guard<std::mutex> lock(vms_mutex_);
                 VmRecord* vm = FindVm(vm_id);
@@ -1381,6 +1525,11 @@ void ManagerService::HandleIncomingMessage(const std::string& vm_id, const ipc::
                     const std::string& state_str = it->second;
                     if (state_str == "running") {
                         vm->state = VmPowerState::kRunning;
+                        // Send port forwards when VM becomes running
+                        if (!vm->spec.port_forwards.empty() && vm->spec.nat_enabled) {
+                            forwards_to_send = vm->spec.port_forwards;
+                            send_forwards = true;
+                        }
                     } else if (state_str == "starting") {
                         vm->state = VmPowerState::kStarting;
                     } else if (state_str == "stopped") {
@@ -1392,6 +1541,22 @@ void ManagerService::HandleIncomingMessage(const std::string& vm_id, const ipc::
                     }
                     cb = state_change_callback_;
                 }
+            }
+            // Send port forward config after lock is released
+            if (send_forwards) {
+                ipc::Message pf_msg;
+                pf_msg.channel = ipc::Channel::kControl;
+                pf_msg.kind = ipc::Kind::kRequest;
+                pf_msg.type = "runtime.update_network";
+                pf_msg.fields["forward_count"] = std::to_string(forwards_to_send.size());
+                for (size_t i = 0; i < forwards_to_send.size(); ++i) {
+                    const auto& pf = forwards_to_send[i];
+                    pf_msg.fields["forward_" + std::to_string(i)] =
+                        std::to_string(pf.host_port) + ":" + std::to_string(pf.guest_port);
+                }
+                std::lock_guard<std::mutex> lock(vms_mutex_);
+                VmRecord* vm = FindVm(vm_id);
+                if (vm) SendRuntimeMessage(*vm, pf_msg);
             }
             if (cb) cb(vm_id);
         }

@@ -669,7 +669,17 @@ void RuntimeControlService::HandleMessage(const ipc::Message& message) {
                                             static_cast<uint16_t>(gp)});
                     }
                 }
-                vm_->UpdatePortForwards(forwards);
+                auto failed_ports = vm_->UpdatePortForwards(forwards);
+                if (!failed_ports.empty()) {
+                    resp.fields["ok"] = "false";
+                    resp.fields["failed_count"] = std::to_string(failed_ports.size());
+                    for (size_t i = 0; i < failed_ports.size(); ++i) {
+                        resp.fields["failed_" + std::to_string(i)] =
+                            std::to_string(failed_ports[i]);
+                    }
+                    Send(resp);
+                    return;
+                }
             }
         }
 

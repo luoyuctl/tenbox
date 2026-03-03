@@ -167,6 +167,25 @@ enum class S {
     kSfConfirmRemoveTitle,
     kSfConfirmRemoveMsg,
 
+    // Port forwards dialog
+    kDlgPortForwards,
+    kPfColHostPort,
+    kPfColGuestPort,
+    kPfBtnAdd,
+    kPfBtnRemove,
+    kPfNoSelection,
+    kPfConfirmRemoveTitle,
+    kPfConfirmRemoveMsg,
+    kPfAddTitle,
+    kPfLabelHostPort,
+    kPfLabelGuestPort,
+    kPfInvalidPort,
+    kPfDuplicatePort,
+    kToolbarPortForwards,
+    kMenuPortForwards,
+    kPfBindErrorTitle,
+    kPfBindErrorMsg,
+
     // Online image dialog
     kImgFetchOnline,
     kImgLoadingOnline,

@@ -119,6 +119,23 @@ static const char* kStringsEn[] = {
     "Please select a shared folder to remove.",  // kSfNoSelection
     "Confirm Remove",                        // kSfConfirmRemoveTitle
     "Remove shared folder '%s'?",            // kSfConfirmRemoveMsg
+    "Port Forwards",                         // kDlgPortForwards
+    "Host Port",                             // kPfColHostPort
+    "Guest Port",                            // kPfColGuestPort
+    "Add...",                                // kPfBtnAdd
+    "Remove",                                // kPfBtnRemove
+    "Please select a port forward to remove.",  // kPfNoSelection
+    "Confirm Remove",                        // kPfConfirmRemoveTitle
+    "Remove port forward %u -> %u?",         // kPfConfirmRemoveMsg
+    "Add Port Forward",                      // kPfAddTitle
+    "Host Port:",                            // kPfLabelHostPort
+    "Guest Port:",                           // kPfLabelGuestPort
+    "Invalid port number (1-65535)",         // kPfInvalidPort
+    "Host port %u is already in use",        // kPfDuplicatePort
+    "Port Forwards",                         // kToolbarPortForwards
+    "Port Forwards...",                      // kMenuPortForwards
+    "Port Forward Error",                    // kPfBindErrorTitle
+    "The following port forwards failed to bind (host:guest):\n%s",  // kPfBindErrorMsg
     "Fetch online images...",                // kImgFetchOnline
     "Loading online images...",              // kImgLoadingOnline
     "(cached)",                              // kImgCached
@@ -256,6 +273,23 @@ static const char* kStringsZhCN[] = {
     "请先选择要移除的共享文件夹。",           // kSfNoSelection
     "确认移除",                              // kSfConfirmRemoveTitle
     "确认移除共享文件夹 '%s'？",             // kSfConfirmRemoveMsg
+    "端口转发",                              // kDlgPortForwards
+    "主机端口",                              // kPfColHostPort
+    "虚拟机端口",                            // kPfColGuestPort
+    "添加...",                               // kPfBtnAdd
+    "移除",                                  // kPfBtnRemove
+    "请先选择要移除的端口转发。",             // kPfNoSelection
+    "确认移除",                              // kPfConfirmRemoveTitle
+    "确认移除端口转发 %u -> %u？",           // kPfConfirmRemoveMsg
+    "添加端口转发",                          // kPfAddTitle
+    "主机端口:",                             // kPfLabelHostPort
+    "虚拟机端口:",                           // kPfLabelGuestPort
+    "端口号无效（1-65535）",                 // kPfInvalidPort
+    "主机端口 %u 已被使用",                  // kPfDuplicatePort
+    "端口转发",                              // kToolbarPortForwards
+    "端口转发...",                           // kMenuPortForwards
+    "端口转发错误",                          // kPfBindErrorTitle
+    "以下端口转发绑定失败（主机端口:虚拟机端口）:\n%s", // kPfBindErrorMsg
     "获取在线镜像...",                       // kImgFetchOnline
     "正在加载在线镜像...",                   // kImgLoadingOnline
     "(已缓存)",                              // kImgCached

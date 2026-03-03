@@ -47,6 +47,7 @@ enum CmdId : UINT {
     IDM_EDIT          = 1014,
     IDM_DELETE        = 1015,
     IDM_SHARED_FOLDERS = 1016,
+    IDM_PORT_FORWARDS  = 1023,
     IDM_VIEW_TOOLBAR           = 1017,
     IDM_VIEW_ADAPTIVE_DISPLAY  = 1018,
     IDM_WEBSITE        = 1020,
@@ -78,6 +79,8 @@ extern bool ShowEditVmDialog(HWND parent, ManagerService& mgr,
                              const VmRecord& rec, std::string* error);
 extern void ShowSharedFoldersDialog(HWND parent, ManagerService& mgr,
                                     const std::string& vm_id);
+extern void ShowPortForwardsDialog(HWND parent, ManagerService& mgr,
+                                   const std::string& vm_id);
 
 // ── Static singleton HWND (needed for InvokeOnUiThread) ──
 
@@ -242,6 +245,7 @@ static HMENU BuildMenuBar(bool show_toolbar, bool adaptive_display) {
     AppendMenuA(vm_menu, MF_STRING, IDM_SHUTDOWN, i18n::tr(S::kMenuShutdown));
     AppendMenuA(vm_menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuA(vm_menu, MF_STRING, IDM_SHARED_FOLDERS, i18n::tr(S::kToolbarSharedFolders));
+    AppendMenuA(vm_menu, MF_STRING, IDM_PORT_FORWARDS, i18n::tr(S::kMenuPortForwards));
     AppendMenuA(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(vm_menu), i18n::tr(S::kMenuVm));
 
     HMENU view_menu = CreatePopupMenu();
@@ -275,11 +279,12 @@ static HIMAGELIST CreateToolbarImageList(HINSTANCE hinst) {
         IDB_TOOLBAR_REBOOT,
         IDB_TOOLBAR_SHUTDOWN,
         IDB_TOOLBAR_SHARED_FOLDERS,
+        IDB_TOOLBAR_PORT_FORWARDS,
     };
 
     HIMAGELIST hil = ImageList_Create(
         kToolbarIconSize, kToolbarIconSize,
-        ILC_COLOR32 | ILC_MASK, 8, 0);
+        ILC_COLOR32 | ILC_MASK, 9, 0);
     if (!hil) return nullptr;
 
     for (UINT id : bmp_ids) {
@@ -325,6 +330,7 @@ static HWND CreateToolbar(HWND parent, HINSTANCE hinst) {
         {IDM_SHUTDOWN,      i18n::tr(S::kToolbarShutdown),    6},
         {0,                 nullptr,                          -1},
         {IDM_SHARED_FOLDERS,i18n::tr(S::kToolbarSharedFolders),  7},
+        {IDM_PORT_FORWARDS, i18n::tr(S::kToolbarPortForwards),   8},
     };
 
     for (const auto& item : items) {
@@ -348,6 +354,78 @@ static HWND CreateToolbar(HWND parent, HINSTANCE hinst) {
 // ── Layout helper ──
 
 using Impl = Win32UiShell::Impl;
+
+// ── Toolbar badge drawing ──
+
+static int GetBadgeCount(Impl* p, UINT cmd_id) {
+    if (p->selected_index < 0 ||
+        p->selected_index >= static_cast<int>(p->records.size()))
+        return 0;
+    const auto& spec = p->records[p->selected_index].spec;
+    if (cmd_id == IDM_SHARED_FOLDERS)
+        return static_cast<int>(spec.shared_folders.size());
+    if (cmd_id == IDM_PORT_FORWARDS)
+        return static_cast<int>(spec.port_forwards.size());
+    return 0;
+}
+
+static void DrawToolbarBadge(HDC hdc, const RECT& btn_rect, int count) {
+    if (count <= 0) return;
+
+    char text[8];
+    _snprintf_s(text, sizeof(text), _TRUNCATE, "%d", count);
+
+    int radius = 12;
+    int cx = btn_rect.right - 18;
+    int cy = btn_rect.top + 16;
+
+    HBRUSH brush = CreateSolidBrush(RGB(120, 120, 120));
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB(120, 120, 120));
+    HBRUSH old_brush = static_cast<HBRUSH>(SelectObject(hdc, brush));
+    HPEN old_pen = static_cast<HPEN>(SelectObject(hdc, pen));
+
+    Ellipse(hdc, cx - radius, cy - radius, cx + radius, cy + radius);
+
+    SelectObject(hdc, old_brush);
+    SelectObject(hdc, old_pen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+
+    HFONT badge_font = CreateFontA(-16, 0, 0, 0, FW_BOLD,
+        FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_SWISS, "Segoe UI");
+    HFONT old_font = static_cast<HFONT>(SelectObject(hdc, badge_font));
+    SetTextColor(hdc, RGB(255, 255, 255));
+    SetBkMode(hdc, TRANSPARENT);
+
+    RECT text_rect = { cx - radius, cy - radius, cx + radius, cy + radius };
+    DrawTextA(hdc, text, -1, &text_rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    SelectObject(hdc, old_font);
+    DeleteObject(badge_font);
+}
+
+static LRESULT HandleToolbarCustomDraw(Impl* p, LPNMTBCUSTOMDRAW cd) {
+    switch (cd->nmcd.dwDrawStage) {
+    case CDDS_PREPAINT:
+        return CDRF_NOTIFYITEMDRAW;
+    case CDDS_ITEMPREPAINT:
+        return CDRF_NOTIFYPOSTPAINT;
+    case CDDS_ITEMPOSTPAINT: {
+        UINT cmd = static_cast<UINT>(cd->nmcd.dwItemSpec);
+        if (cmd == IDM_SHARED_FOLDERS || cmd == IDM_PORT_FORWARDS) {
+            int count = GetBadgeCount(p, cmd);
+            if (count > 0) {
+                DrawToolbarBadge(cd->nmcd.hdc, cd->nmcd.rc, count);
+            }
+        }
+        return CDRF_DODEFAULT;
+    }
+    default:
+        return CDRF_DODEFAULT;
+    }
+}
 
 static constexpr int kTabInfo    = 0;
 static constexpr int kTabConsole = 1;
@@ -524,6 +602,9 @@ static void UpdateCommandStates(Impl* p) {
     EnableCmd(IDM_EDIT,           has_sel);
     EnableCmd(IDM_DELETE,         has_sel && !running);
     EnableCmd(IDM_SHARED_FOLDERS, has_sel);
+    EnableCmd(IDM_PORT_FORWARDS, has_sel);
+
+    InvalidateRect(p->toolbar, nullptr, FALSE);
 
     p->console_tab.SetEnabled(running);
 }
@@ -729,6 +810,14 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ShowSharedFoldersDialog(hwnd, shell->manager_, vm_id);
             return 0;
         }
+        case IDM_PORT_FORWARDS: {
+            if (p->selected_index < 0 ||
+                p->selected_index >= static_cast<int>(p->records.size()))
+                break;
+            const std::string& vm_id = p->records[p->selected_index].spec.vm_id;
+            ShowPortForwardsDialog(hwnd, shell->manager_, vm_id);
+            return 0;
+        }
         case IDM_VIEW_TOOLBAR: {
             auto& show = shell->manager_.app_settings().show_toolbar;
             show = !show;
@@ -805,6 +894,11 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_NOTIFY: {
         auto* nmhdr = reinterpret_cast<NMHDR*>(lp);
+
+        if (nmhdr->idFrom == IDC_TOOLBAR && nmhdr->code == NM_CUSTOMDRAW) {
+            return HandleToolbarCustomDraw(p,
+                reinterpret_cast<LPNMTBCUSTOMDRAW>(lp));
+        }
 
         LRESULT lr = 0;
         if (p->vm_listview.HandleNotify(nmhdr, p->records, p->ui_font, &lr))
@@ -1265,6 +1359,20 @@ Win32UiShell::Win32UiShell(ManagerService& manager)
             });
         });
 
+    manager_.SetPortForwardErrorCallback(
+        [this](const std::string& vm_id, const std::vector<std::string>& failed_mappings) {
+            (void)vm_id;
+            InvokeOnUiThread([this, failed_mappings]() {
+                std::string ports_str;
+                for (const auto& mapping : failed_mappings) {
+                    ports_str += "  - " + mapping + "\n";
+                }
+                std::string msg = i18n::fmt(i18n::S::kPfBindErrorMsg, ports_str.c_str());
+                MessageBoxA(impl_->hwnd, msg.c_str(),
+                    i18n::tr(i18n::S::kPfBindErrorTitle), MB_OK | MB_ICONWARNING);
+            });
+        });
+
     RefreshVmList();
     LayoutControls(impl_.get());
 
@@ -1284,6 +1392,7 @@ Win32UiShell::~Win32UiShell() {
     manager_.SetClipboardRequestCallback(nullptr);
     manager_.SetAudioPcmCallback(nullptr);
     manager_.SetGuestAgentStateCallback(nullptr);
+    manager_.SetPortForwardErrorCallback(nullptr);
 
     // Stop all VMs and join their read threads so no background thread
     // can still be executing a previously-copied callback closure that

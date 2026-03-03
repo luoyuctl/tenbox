@@ -257,6 +257,21 @@ void NetBackend::SetLinkUp(bool up) {
 void NetBackend::UpdatePortForwards(const std::vector<PortForward>& forwards) {
     std::lock_guard<std::mutex> lock(pf_update_mutex_);
     pending_pf_update_ = forwards;
+    pf_update_sync_ = false;
+}
+
+std::vector<uint16_t> NetBackend::UpdatePortForwardsSync(const std::vector<PortForward>& forwards) {
+    std::unique_lock<std::mutex> lock(pf_update_mutex_);
+    pending_pf_update_ = forwards;
+    pf_update_sync_ = true;
+    pf_update_failed_ports_.clear();
+
+    // Wait for network thread to process the update
+    pf_update_cv_.wait(lock, [this] {
+        return !pf_update_sync_;
+    });
+
+    return std::move(pf_update_failed_ports_);
 }
 
 void NetBackend::EnqueueTx(const uint8_t* frame, uint32_t len) {
@@ -1344,53 +1359,71 @@ void NetBackend::TeardownPortForwards() {
 
 void NetBackend::CheckPendingUpdates() {
     std::optional<std::vector<PortForward>> update;
+    bool sync = false;
     {
         std::lock_guard<std::mutex> lock(pf_update_mutex_);
         if (pending_pf_update_) {
             update = std::move(pending_pf_update_);
             pending_pf_update_.reset();
+            sync = pf_update_sync_;
         }
     }
     if (update) {
         TeardownPortForwards();
         for (auto& f : *update)
             port_forwards_.push_back({f.host_port, f.guest_port});
-        SetupPortForwards();
-        LOG_INFO("Port forwards updated (%zu entries)", update->size());
+        auto failed = SetupPortForwards();
+        LOG_INFO("Port forwards updated (%zu entries, %zu failed)",
+                 update->size(), failed.size());
+
+        if (sync) {
+            std::lock_guard<std::mutex> lock(pf_update_mutex_);
+            pf_update_failed_ports_ = std::move(failed);
+            pf_update_sync_ = false;
+            pf_update_cv_.notify_one();
+        }
     }
 }
 
-void NetBackend::SetupPortForwards() {
+std::vector<uint16_t> NetBackend::SetupPortForwards() {
     g_net_backend = this;
+    std::vector<uint16_t> failed_ports;
 
     for (auto& pf : port_forwards_) {
         SOCKET s = socket(AF_INET, SOCK_STREAM, 0);
         if (s == INVALID_SOCKET) {
             LOG_ERROR("Port forward: failed to create listener for port %u", pf.host_port);
+            failed_ports.push_back(pf.host_port);
             continue;
         }
-        int reuse = 1;
-        setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
-                   reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+        // Use SO_EXCLUSIVEADDRUSE on Windows to prevent port hijacking.
+        // Unlike SO_REUSEADDR which allows multiple binds to the same port,
+        // this ensures we get an error if the port is already in use.
+        int exclusive = 1;
+        setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                   reinterpret_cast<const char*>(&exclusive), sizeof(exclusive));
 
         u_long nonblock = 1;
         ioctlsocket(s, FIONBIO, &nonblock);
 
         struct sockaddr_in addr{};
         addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = INADDR_ANY;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // bind to 127.0.0.1 only for security
         addr.sin_port = htons(pf.host_port);
 
         if (bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR ||
             listen(s, 5) == SOCKET_ERROR) {
             LOG_ERROR("Port forward: failed to bind/listen on port %u", pf.host_port);
             closesocket(s);
+            failed_ports.push_back(pf.host_port);
             continue;
         }
 
         pf.listener = static_cast<uintptr_t>(s);
-        LOG_INFO("Port forward: host:%u -> guest:%u", pf.host_port, pf.guest_port);
+        LOG_INFO("Port forward: 127.0.0.1:%u -> guest:%u", pf.host_port, pf.guest_port);
     }
+
+    return failed_ports;
 }
 
 void NetBackend::PollPortForwards() {

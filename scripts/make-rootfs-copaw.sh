@@ -563,7 +563,7 @@ mkdir -p /home/$USER_NAME/.config/autostart
 cat > /home/$USER_NAME/.config/autostart/copaw.desktop << 'DESKTOP'
 [Desktop Entry]
 Type=Application
-Exec=xfce4-terminal -e "bash -ic 'echo Starting CoPaw...; copaw app; exec bash'"
+Exec=xfce4-terminal -e "bash -ic 'echo Starting CoPaw...; copaw app --host 0.0.0.0; exec bash'"
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
