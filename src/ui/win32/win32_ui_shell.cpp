@@ -808,6 +808,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 break;
             const std::string& vm_id = p->records[p->selected_index].spec.vm_id;
             ShowSharedFoldersDialog(hwnd, shell->manager_, vm_id);
+            shell->RefreshVmList();
             return 0;
         }
         case IDM_PORT_FORWARDS: {
@@ -816,6 +817,7 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 break;
             const std::string& vm_id = p->records[p->selected_index].spec.vm_id;
             ShowPortForwardsDialog(hwnd, shell->manager_, vm_id);
+            shell->RefreshVmList();
             return 0;
         }
         case IDM_VIEW_TOOLBAR: {
