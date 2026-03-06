@@ -127,6 +127,12 @@ struct PfDlgData {
     HWND listview;
 };
 
+static void PfUpdateButtons(HWND dlg, HWND listview) {
+    BOOL has_sel = ListView_GetNextItem(listview, -1, LVNI_SELECTED) >= 0;
+    EnableWindow(GetDlgItem(dlg, IDC_PF_REMOVE), has_sel);
+    EnableWindow(GetDlgItem(dlg, IDC_PF_OPEN), has_sel);
+}
+
 static void PfRefreshList(PfDlgData* data) {
     HWND lv = data->listview;
     ListView_DeleteAllItems(lv);
@@ -285,7 +291,16 @@ static INT_PTR CALLBACK PfDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
         MoveWindow(GetDlgItem(dlg, IDC_PF_OPEN), btn_x, gap + (btn_h + btn_gap) * 2, btn_w, btn_h, FALSE);
 
         PfRefreshList(data);
+        PfUpdateButtons(dlg, lv);
         return TRUE;
+    }
+
+    case WM_NOTIFY: {
+        auto* nmhdr = reinterpret_cast<NMHDR*>(lp);
+        if (nmhdr->idFrom == IDC_PF_LIST && nmhdr->code == LVN_ITEMCHANGED) {
+            PfUpdateButtons(dlg, data->listview);
+        }
+        return FALSE;
     }
 
     case WM_COMMAND:
@@ -293,6 +308,7 @@ static INT_PTR CALLBACK PfDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
         case IDC_PF_ADD:
             if (ShowAddPortForwardDialog(dlg, *data->mgr, data->vm_id)) {
                 PfRefreshList(data);
+                PfUpdateButtons(dlg, data->listview);
             }
             return TRUE;
 
@@ -342,6 +358,7 @@ static INT_PTR CALLBACK PfDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
                 std::string error;
                 if (data->mgr->RemovePortForward(data->vm_id, host_port, &error)) {
                     PfRefreshList(data);
+                    PfUpdateButtons(dlg, data->listview);
                 } else {
                     MessageBoxW(dlg, i18n::to_wide(error).c_str(),
                         i18n::tr_w(i18n::S::kError).c_str(), MB_OK | MB_ICONERROR);

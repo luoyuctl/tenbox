@@ -486,7 +486,6 @@ void RuntimeControlService::Stop() {
     if (h && h != INVALID_HANDLE_VALUE) {
         FlushFileBuffers(h);
         CancelIoEx(h, nullptr);
-        DisconnectNamedPipe(h);
         CloseHandle(h);
         pipe_handle_ = nullptr;
     }
@@ -532,30 +531,22 @@ bool RuntimeControlService::EnsureClientConnected() {
     if (h && h != INVALID_HANDLE_VALUE) return true;
 
     std::string full_name = R"(\\.\pipe\)" + pipe_name_;
-    h = CreateNamedPipeA(
+    
+    // Connect to Manager's pipe (already created before we started).
+    h = CreateFileA(
         full_name.c_str(),
-        PIPE_ACCESS_DUPLEX,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-        1,
-        64 * 1024,
-        64 * 1024,
+        GENERIC_READ | GENERIC_WRITE,
+        0,
+        nullptr,
+        OPEN_EXISTING,
         0,
         nullptr);
     if (h == INVALID_HANDLE_VALUE) {
-        LOG_ERROR("CreateNamedPipe failed for %s", full_name.c_str());
+        LOG_ERROR("Failed to connect to pipe %s: %lu", full_name.c_str(), GetLastError());
         return false;
     }
-
-    BOOL connected = ConnectNamedPipe(h, nullptr);
-    if (!connected) {
-        DWORD err = GetLastError();
-        if (err != ERROR_PIPE_CONNECTED) {
-            CloseHandle(h);
-            LOG_ERROR("ConnectNamedPipe failed: %lu", err);
-            return false;
-        }
-    }
-
+    DWORD mode = PIPE_READMODE_BYTE;
+    SetNamedPipeHandleState(h, &mode, nullptr, nullptr);
     pipe_handle_ = h;
     return true;
 }

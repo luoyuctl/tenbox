@@ -254,6 +254,13 @@ enum class S {
     kSettingsMigrate,
     kSettingsDelete,
 
+    // StartVm errors
+    kErrHvNotEnabled,
+    kErrVmNotFound,
+    kErrLaunchRuntimeFailed,
+    kErrVmDisappearedDuringStart,
+    kErrIpcConnectionFailed,
+
     kCount  // Must be last
 };
 

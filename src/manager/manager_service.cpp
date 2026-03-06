@@ -1,6 +1,7 @@
 #include "manager/manager_service.h"
 
 #include "core/vmm/types.h"
+#include "manager/i18n.h"
 
 #include <windows.h>
 
@@ -426,7 +427,7 @@ bool ManagerService::EditVm(const std::string& vm_id, const VmMutablePatch& patc
 
 bool ManagerService::StartVm(const std::string& vm_id, std::string* error) {
     if (!hypervisor_available_) {
-        if (error) *error = "Windows Hypervisor Platform is not enabled";
+        if (error) *error = i18n::tr(i18n::S::kErrHvNotEnabled);
         return false;
     }
 
@@ -436,12 +437,21 @@ bool ManagerService::StartVm(const std::string& vm_id, std::string* error) {
         std::lock_guard<std::mutex> lock(vms_mutex_);
         VmRecord* vmp = FindVm(vm_id);
         if (!vmp) {
-            if (error) *error = "vm not found";
+            if (error) *error = i18n::tr(i18n::S::kErrVmNotFound);
             return false;
         }
         if (vmp->state == VmPowerState::kRunning || vmp->state == VmPowerState::kStarting) {
             return true;
         }
+        // Ensure the previous read thread has finished and all handles are closed.
+        if (vmp->runtime.read_thread.joinable()) {
+            vmp->runtime.read_running.store(false);
+            if (vmp->runtime.pipe_handle) {
+                CancelIoEx(reinterpret_cast<HANDLE>(vmp->runtime.pipe_handle), nullptr);
+            }
+            vmp->runtime.read_thread.join();
+        }
+        CleanupRuntimeHandles(*vmp);
         vmp->state = VmPowerState::kStarting;
         pipe_name = "tenbox_vm_" + vmp->spec.vm_id;
         vmp->runtime.pipe_name = pipe_name;
@@ -494,7 +504,29 @@ bool ManagerService::StartVm(const std::string& vm_id, std::string* error) {
         std::lock_guard<std::mutex> lock(vms_mutex_);
         VmRecord* vmp = FindVm(vm_id);
         if (vmp) vmp->state = VmPowerState::kStopped;
-        if (error) *error = "failed to launch vm-runtime process";
+        if (error) *error = i18n::tr(i18n::S::kErrLaunchRuntimeFailed);
+        return false;
+    }
+
+    // Create pipe before resuming the process (Manager is the pipe server).
+    const std::string pipe_full = R"(\\.\pipe\)" + pipe_name;
+    HANDLE pipe = CreateNamedPipeA(
+        pipe_full.c_str(),
+        PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+        1,
+        64 * 1024,
+        64 * 1024,
+        5000,
+        nullptr);
+    if (pipe == INVALID_HANDLE_VALUE) {
+        LOG_ERROR("CreateNamedPipe failed for %s: %lu", pipe_full.c_str(), GetLastError());
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        std::lock_guard<std::mutex> lock(vms_mutex_);
+        VmRecord* vmp = FindVm(vm_id);
+        if (vmp) vmp->state = VmPowerState::kStopped;
+        if (error) *error = i18n::tr(i18n::S::kErrIpcConnectionFailed);
         return false;
     }
 
@@ -504,40 +536,35 @@ bool ManagerService::StartVm(const std::string& vm_id, std::string* error) {
     ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
 
-    // Temporarily build a VmRuntimeHandle to connect the pipe outside the lock.
-    // EnsurePipeConnected only touches the VmRecord passed to it.
-    VmRuntimeHandle rt;
-    rt.process_handle = pi.hProcess;
-    rt.process_id = pi.dwProcessId;
-    rt.pipe_name = pipe_name;
-
-    VmRecord tmp;
-    tmp.runtime = std::move(rt);
-    bool pipe_ok = EnsurePipeConnected(tmp);
+    // Wait for Runtime to connect.
+    BOOL connected = ConnectNamedPipe(pipe, nullptr);
+    bool pipe_ok = connected || (GetLastError() == ERROR_PIPE_CONNECTED);
 
     {
         std::lock_guard<std::mutex> lock(vms_mutex_);
         VmRecord* vmp = FindVm(vm_id);
         if (!vmp) {
             CloseHandle(pi.hProcess);
-            if (tmp.runtime.pipe_handle)
-                CloseHandle(reinterpret_cast<HANDLE>(tmp.runtime.pipe_handle));
-            if (error) *error = "vm disappeared during start";
+            DisconnectNamedPipe(pipe);
+            CloseHandle(pipe);
+            if (error) *error = i18n::tr(i18n::S::kErrVmDisappearedDuringStart);
             return false;
         }
-        vmp->runtime.process_handle = tmp.runtime.process_handle;
-        vmp->runtime.process_id = tmp.runtime.process_id;
-        vmp->runtime.pipe_handle = tmp.runtime.pipe_handle;
+        vmp->runtime.process_handle = pi.hProcess;
+        vmp->runtime.process_id = pi.dwProcessId;
 
         if (pipe_ok) {
+            vmp->runtime.pipe_handle = pipe;
             vmp->state = VmPowerState::kRunning;
             vmp->spec.last_boot_time = static_cast<int64_t>(std::chrono::system_clock::to_time_t(
                 std::chrono::system_clock::now()));
             settings::SaveVmManifest(vmp->spec);
             StartReadThread(vm_id, *vmp);
         } else {
+            DisconnectNamedPipe(pipe);
+            CloseHandle(pipe);
             vmp->state = VmPowerState::kCrashed;
-            if (error) *error = "runtime process started but IPC connection failed (check runtime.log in VM directory)";
+            if (error) *error = i18n::tr(i18n::S::kErrIpcConnectionFailed);
         }
         return vmp->state == VmPowerState::kRunning;
     }
@@ -737,35 +764,8 @@ void ManagerService::LoadVms() {
 
 // ── Runtime IPC ──────────────────────────────────────────────────────
 
-bool ManagerService::EnsurePipeConnected(VmRecord& vm) {
-    if (vm.runtime.pipe_name.empty()) return false;
-    if (vm.runtime.pipe_handle) return true;
-
-    const std::string full = R"(\\.\pipe\)" + vm.runtime.pipe_name;
-    for (int i = 0; i < 60; ++i) {
-        if (WaitNamedPipeA(full.c_str(), 50)) {
-            HANDLE pipe = CreateFileA(
-                full.c_str(),
-                GENERIC_READ | GENERIC_WRITE,
-                0,
-                nullptr,
-                OPEN_EXISTING,
-                0,
-                nullptr);
-            if (pipe != INVALID_HANDLE_VALUE) {
-                DWORD mode = PIPE_READMODE_BYTE;
-                SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr);
-                vm.runtime.pipe_handle = pipe;
-                return true;
-            }
-        }
-        Sleep(50);
-    }
-    return false;
-}
-
 bool ManagerService::SendRuntimeMessage(VmRecord& vm, const ipc::Message& msg) {
-    if (!EnsurePipeConnected(vm)) return false;
+    if (!vm.runtime.pipe_handle) return false;
     HANDLE pipe = reinterpret_cast<HANDLE>(vm.runtime.pipe_handle);
     std::string encoded = ipc::Encode(msg);
     DWORD written = 0;
@@ -785,7 +785,10 @@ void ManagerService::ApplyPendingPatchLocked(VmRecord& vm) {
 
 void ManagerService::CleanupRuntimeHandles(VmRecord& vm) {
     if (vm.runtime.pipe_handle) {
-        CloseHandle(reinterpret_cast<HANDLE>(vm.runtime.pipe_handle));
+        HANDLE pipe = reinterpret_cast<HANDLE>(vm.runtime.pipe_handle);
+        FlushFileBuffers(pipe);
+        DisconnectNamedPipe(pipe);
+        CloseHandle(pipe);
         vm.runtime.pipe_handle = nullptr;
     }
     if (vm.runtime.process_handle) {
@@ -1346,6 +1349,10 @@ void ManagerService::DispatchPipeData(std::string& pending, PipeParseState& pars
 }
 
 void ManagerService::HandleProcessExit(const std::string& vm_id) {
+    // Called from PipeReadThreadFunc -- must NOT call CleanupRuntimeHandles here
+    // because the read thread is still running (can't join self) and the pipe
+    // handle it holds would be closed out from under it.
+    // We only update state; actual handle cleanup happens in FinishReadThread.
     StateChangeCallback cb;
     bool needs_reboot = false;
     {
@@ -1355,12 +1362,19 @@ void ManagerService::HandleProcessExit(const std::string& vm_id) {
         if (vmp->state == VmPowerState::kStopped) return;
         VmRecord& vm = *vmp;
         bool was_crashed = (vm.state == VmPowerState::kCrashed);
-        CleanupRuntimeHandles(vm);
+
+        // Read exit code from the process handle (without closing it yet).
+        if (vm.runtime.process_handle) {
+            HANDLE proc = reinterpret_cast<HANDLE>(vm.runtime.process_handle);
+            WaitForSingleObject(proc, 500);
+            DWORD ec = 0;
+            GetExitCodeProcess(proc, &ec);
+            vm.last_exit_code = static_cast<int>(ec);
+        }
+
         needs_reboot = vm.reboot_pending || (vm.last_exit_code == 128);
         vm.reboot_pending = false;
         vm.guest_agent_connected = false;
-        // Preserve kCrashed if runtime already reported it via IPC;
-        // otherwise fall back to exit-code heuristic.
         if (!was_crashed) {
             vm.state = (vm.last_exit_code != 0)
                 ? VmPowerState::kCrashed : VmPowerState::kStopped;
@@ -1371,9 +1385,8 @@ void ManagerService::HandleProcessExit(const std::string& vm_id) {
 
     if (needs_reboot) {
         LOG_INFO("VM %s requested reboot, restarting...", vm_id.c_str());
-        // Must spawn a new thread because we're currently in the read_thread
-        // and StartVm will try to join it (can't join self).
-        // StartVm manages its own locking, so no outer lock needed.
+        // StartVm is called on a separate thread because it will join the
+        // current read_thread (can't join self).
         std::thread([this, vm_id]() {
             std::string error;
             if (!StartVm(vm_id, &error)) {
@@ -1450,6 +1463,8 @@ void ManagerService::PipeReadThreadFunc(const std::string& vm_id) {
             idle_count = 0;
         }
     }
+
+    running_flag->store(false);
 
     if (process_exited) {
         HandleProcessExit(vm_id);

@@ -1331,20 +1331,22 @@ Win32UiShell::Win32UiShell(ManagerService& manager)
     manager_.SetDisplayStateCallback(
         [this](const std::string& vm_id, bool active, uint32_t width, uint32_t height) {
             InvokeOnUiThread([this, vm_id, active, width, height]() {
+                VmUiState& state = impl_->GetVmUiState(vm_id);
+                if (active) {
+                    state.current_tab = kTabDisplay;
+                }
+
                 bool is_current = (impl_->selected_index >= 0 &&
                     impl_->selected_index < static_cast<int>(impl_->records.size()) &&
                     impl_->records[impl_->selected_index].spec.vm_id == vm_id);
                 if (!is_current) return;
 
-                VmUiState& state = impl_->GetVmUiState(vm_id);
                 if (active) {
                     impl_->display_available = true;
-                    state.current_tab = kTabDisplay;
                     SendMessage(impl_->tab, TCM_SETCURSEL, kTabDisplay, 0);
                     ResizeWindowForDisplay(impl_.get(), width, height);
                 } else {
                     impl_->display_available = false;
-                    // Do not auto-switch to console when display closes (e.g. screensaver)
                 }
                 LayoutControls(impl_.get());
             });

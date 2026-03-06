@@ -188,6 +188,23 @@ static const std::unordered_map<S, const char*> kStringsEn = {
     {S::kSettingsOldCacheMsg, "Old cache at:\n%s\nuses %s.\n\nMigrate to the new directory?\n(No = delete old cache)"},
     {S::kSettingsMigrate, "Migrate"},
     {S::kSettingsDelete, "Delete"},
+
+    // StartVm errors
+    {S::kErrHvNotEnabled,
+        "Windows Hypervisor Platform is not enabled.\n\n"
+        "To fix this:\n"
+        "1. Enable \"Virtual Machine Platform\" in Windows Features\n"
+        "   (Control Panel > Programs > Turn Windows features on or off)\n"
+        "2. Enable hardware virtualization in BIOS/UEFI settings\n"
+        "   - Intel CPU: Enable VT-x (Intel Virtualization Technology)\n"
+        "   - AMD CPU: Enable SVM Mode\n"
+        "3. Run as Administrator in PowerShell:\n"
+        "   bcdedit /set hypervisorlaunchtype auto\n"
+        "4. Restart your computer"},
+    {S::kErrVmNotFound, "VM not found"},
+    {S::kErrLaunchRuntimeFailed, "Failed to launch VM runtime process"},
+    {S::kErrVmDisappearedDuringStart, "VM disappeared during start"},
+    {S::kErrIpcConnectionFailed, "Runtime process started but IPC connection failed (check runtime.log in VM directory)"},
 };
 
 // Simplified Chinese strings; each key explicitly bound (no order dependency)
@@ -367,6 +384,23 @@ static const std::unordered_map<S, const char*> kStringsZhCN = {
     {S::kSettingsOldCacheMsg, "旧缓存目录:\n%s\n占用 %s。\n\n是否迁移到新目录？\n（否 = 删除旧缓存）"},
     {S::kSettingsMigrate, "迁移"},
     {S::kSettingsDelete, "删除"},
+
+    // StartVm errors
+    {S::kErrHvNotEnabled,
+        "虚拟机平台未启用，无法启动虚拟机。\n\n"
+        "请按以下步骤排查：\n"
+        "1. 开启 Windows 虚拟机平台功能\n"
+        "   控制面板 → 程序 → 启用或关闭 Windows 功能 → 勾选\"虚拟机平台\"\n"
+        "2. 在 BIOS/UEFI 中开启 CPU 硬件虚拟化\n"
+        "   · Intel CPU：开启 VT-x（Intel Virtualization Technology）\n"
+        "   · AMD CPU：开启 SVM Mode\n"
+        "3. 以管理员身份运行 PowerShell，执行：\n"
+        "   bcdedit /set hypervisorlaunchtype auto\n"
+        "4. 重启计算机"},
+    {S::kErrVmNotFound, "找不到虚拟机"},
+    {S::kErrLaunchRuntimeFailed, "启动虚拟机运行时进程失败"},
+    {S::kErrVmDisappearedDuringStart, "启动过程中虚拟机消失"},
+    {S::kErrIpcConnectionFailed, "运行时进程已启动，但 IPC 连接失败（请检查虚拟机目录中的 runtime.log）"},
 };
 
 void InitLanguage() {

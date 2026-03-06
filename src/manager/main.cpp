@@ -9,10 +9,49 @@ using UiShell = Win32UiShell;
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
+#include <filesystem>
+#include <ctime>
+#include <io.h>
+
+static FILE* g_log_file = nullptr;
+
+static void InitLogFile() {
+    wchar_t path[MAX_PATH]{};
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, path)))
+        return;
+    
+    std::filesystem::path log_dir = path;
+    log_dir /= L"TenBox";
+    std::error_code ec;
+    std::filesystem::create_directories(log_dir, ec);
+    
+    std::filesystem::path log_path = log_dir / L"manager.log";
+    g_log_file = _wfopen(log_path.c_str(), L"a");
+    if (g_log_file) {
+        setvbuf(g_log_file, nullptr, _IOLBF, BUFSIZ);
+        
+        // Write startup marker
+        time_t now = time(nullptr);
+        char time_buf[64];
+        strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", localtime(&now));
+        fprintf(g_log_file, "\n=== TenBox Manager started at %s ===\n", time_buf);
+        
+        // Redirect stderr to log file
+        _dup2(_fileno(g_log_file), _fileno(stderr));
+    }
+}
+
+static void CloseLogFile() {
+    if (g_log_file) {
+        fclose(g_log_file);
+        g_log_file = nullptr;
+    }
+}
 
 static std::string ResolveDefaultRuntimeExePath() {
     wchar_t self[MAX_PATH]{};
@@ -98,7 +137,24 @@ static bool EnableHypervisorPlatform() {
         GetExitCodeProcess(sei.hProcess, &exitCode);
         CloseHandle(sei.hProcess);
         // 3010 = ERROR_SUCCESS_REBOOT_REQUIRED
-        return exitCode == 0 || exitCode == 3010;
+        if (exitCode != 0 && exitCode != 3010)
+            return false;
+
+        // Ensure the hypervisor is set to launch at boot.
+        // Some software (e.g. older VMware/VirtualBox) may have set it to "off".
+        SHELLEXECUTEINFOW bcd{};
+        bcd.cbSize = sizeof(bcd);
+        bcd.fMask = SEE_MASK_NOCLOSEPROCESS;
+        bcd.lpVerb = L"runas";
+        bcd.lpFile = L"bcdedit.exe";
+        bcd.lpParameters = L"/set hypervisorlaunchtype auto";
+        bcd.nShow = SW_HIDE;
+        if (ShellExecuteExW(&bcd) && bcd.hProcess) {
+            WaitForSingleObject(bcd.hProcess, INFINITE);
+            CloseHandle(bcd.hProcess);
+        }
+
+        return true;
     }
     return false;
 }
@@ -184,10 +240,13 @@ static bool CheckHypervisorAndPrompt() {
 }
 
 int main(int argc, char* argv[]) {
+    InitLogFile();
+    
     HANDLE hMutex = CreateMutexW(nullptr, FALSE, kMutexName);
     if (hMutex && GetLastError() == ERROR_ALREADY_EXISTS) {
         CloseHandle(hMutex);
         ActivateExistingInstance();
+        CloseLogFile();
         return 0;
     }
 
@@ -297,5 +356,6 @@ int main(int argc, char* argv[]) {
 
     manager.ShutdownAll();
     if (hMutex) CloseHandle(hMutex);
+    CloseLogFile();
     return 0;
 }

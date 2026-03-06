@@ -179,7 +179,6 @@ private:
     bool EraseVm(const std::string& vm_id);
 
     bool SendRuntimeMessage(VmRecord& vm, const ipc::Message& msg);
-    bool EnsurePipeConnected(VmRecord& vm);
     void CloseRuntime(VmRecord& vm);
     void ApplyPendingPatchLocked(VmRecord& vm);
     void LoadVms();

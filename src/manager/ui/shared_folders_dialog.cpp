@@ -26,6 +26,12 @@ struct SfDlgData {
     HWND listview;
 };
 
+static void SfUpdateButtons(HWND dlg, HWND listview) {
+    BOOL has_sel = ListView_GetNextItem(listview, -1, LVNI_SELECTED) >= 0;
+    EnableWindow(GetDlgItem(dlg, IDC_SF_REMOVE), has_sel);
+    EnableWindow(GetDlgItem(dlg, IDC_SF_OPEN), has_sel);
+}
+
 static void SfRefreshList(SfDlgData* data) {
     HWND lv = data->listview;
     ListView_DeleteAllItems(lv);
@@ -100,7 +106,16 @@ static INT_PTR CALLBACK SfDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
         MoveWindow(GetDlgItem(dlg, IDC_SF_OPEN),   btn_x, gap + (btn_h + btn_gap) * 2,  btn_w, btn_h, FALSE);
 
         SfRefreshList(data);
+        SfUpdateButtons(dlg, lv);
         return TRUE;
+    }
+
+    case WM_NOTIFY: {
+        auto* nmhdr = reinterpret_cast<NMHDR*>(lp);
+        if (nmhdr->idFrom == IDC_SF_LIST && nmhdr->code == LVN_ITEMCHANGED) {
+            SfUpdateButtons(dlg, data->listview);
+        }
+        return FALSE;
     }
 
     case WM_COMMAND:
@@ -121,6 +136,7 @@ static INT_PTR CALLBACK SfDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
                 std::string error;
                 if (data->mgr->AddSharedFolder(data->vm_id, sf, &error)) {
                     SfRefreshList(data);
+                    SfUpdateButtons(dlg, data->listview);
                 } else {
                     MessageBoxW(dlg, i18n::to_wide(error).c_str(),
                         i18n::tr_w(i18n::S::kError).c_str(), MB_OK | MB_ICONERROR);
@@ -162,6 +178,7 @@ static INT_PTR CALLBACK SfDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
                 std::string error;
                 if (data->mgr->RemoveSharedFolder(data->vm_id, tag_str, &error)) {
                     SfRefreshList(data);
+                    SfUpdateButtons(dlg, data->listview);
                 } else {
                     MessageBoxW(dlg, i18n::to_wide(error).c_str(),
                         i18n::tr_w(i18n::S::kError).c_str(), MB_OK | MB_ICONERROR);
