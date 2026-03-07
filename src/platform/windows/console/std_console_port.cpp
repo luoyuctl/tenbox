@@ -1,4 +1,5 @@
 #include "platform/windows/console/std_console_port.h"
+#include "core/vmm/types.h"
 
 #include <algorithm>
 #include <cstring>
@@ -44,7 +45,7 @@ void StdConsolePort::Write(const uint8_t* data, size_t size) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(write_mutex_);
+    std::lock_guard<std::mutex> lock(GetStdoutMutex());
     DWORD written = 0;
     WriteFile(stdout_, data, static_cast<DWORD>(size), &written, nullptr);
 }

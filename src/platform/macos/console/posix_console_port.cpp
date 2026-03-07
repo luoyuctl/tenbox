@@ -1,4 +1,5 @@
 #include "platform/macos/console/posix_console_port.h"
+#include "core/vmm/types.h"
 #include <unistd.h>
 #include <poll.h>
 #include <cstring>
@@ -28,7 +29,7 @@ PosixConsolePort::~PosixConsolePort() {
 
 void PosixConsolePort::Write(const uint8_t* data, size_t size) {
     if (!data || size == 0) return;
-    std::lock_guard<std::mutex> lock(write_mutex_);
+    std::lock_guard<std::mutex> lock(GetStdoutMutex());
     ::write(STDOUT_FILENO, data, size);
 }
 

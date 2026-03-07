@@ -62,6 +62,7 @@ public:
 
     // Whether keyboard/mouse capture is active (panel has focus).
     bool IsCaptured() const { return captured_; }
+    void ReleaseAllModifiers();
 
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 

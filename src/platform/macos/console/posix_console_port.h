@@ -1,7 +1,6 @@
 #pragma once
 
 #include "common/ports.h"
-#include <mutex>
 #include <termios.h>
 
 class PosixConsolePort final : public ConsolePort {
@@ -15,5 +14,4 @@ public:
 private:
     struct termios orig_termios_;
     bool raw_mode_ = false;
-    std::mutex write_mutex_;
 };

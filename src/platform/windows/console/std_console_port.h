@@ -6,8 +6,6 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-#include <mutex>
-
 class StdConsolePort final : public ConsolePort {
 public:
     StdConsolePort();
@@ -25,5 +23,4 @@ private:
     DWORD old_out_mode_ = 0;
     UINT old_input_cp_ = 0;
     UINT old_output_cp_ = 0;
-    std::mutex write_mutex_;
 };

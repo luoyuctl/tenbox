@@ -1155,6 +1155,12 @@ static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         PostQuitMessage(0);
         return 0;
 
+    case WM_ACTIVATEAPP:
+        if (!wp && p && p->display_panel) {
+            p->display_panel->ReleaseAllModifiers();
+        }
+        break;
+
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;

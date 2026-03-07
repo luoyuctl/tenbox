@@ -32,6 +32,7 @@ public:
     bool SetupBootVCpu(HypervisorVCpu* vcpu, uint8_t* ram) override;
 
     void InjectIrq(HypervisorVm* hv_vm, uint8_t irq) override;
+    void SetIrqLevel(HypervisorVm* hv_vm, uint8_t irq, bool asserted) override;
 
     void InjectConsoleInput(const uint8_t* data, size_t size) override;
 

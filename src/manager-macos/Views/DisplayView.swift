@@ -179,6 +179,29 @@ class InputMTKView: MTKView {
         return true
     }
 
+    override func resignFirstResponder() -> Bool {
+        inputHandler?.releaseAllModifiers()
+        return super.resignFirstResponder()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        if let win = window {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(windowDidResignKey),
+                name: NSWindow.didResignKeyNotification, object: win)
+        }
+    }
+
+    @objc private func windowDidResignKey(_ note: Notification) {
+        inputHandler?.releaseAllModifiers()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override func keyDown(with event: NSEvent) {
         inputHandler?.handleKeyDown(event)
     }

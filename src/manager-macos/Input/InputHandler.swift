@@ -76,6 +76,15 @@ class InputHandler {
         }
     }
 
+    /// Send key-up for all modifier keys to prevent stuck modifiers when
+    /// the view loses focus while a modifier is held.
+    func releaseAllModifiers() {
+        let modifierCodes: [UInt16] = [29, 97, 42, 54, 56, 100, 125, 126]
+        for code in modifierCodes {
+            onEvent?(EvdevEvent(type: Self.EV_KEY, code: code, value: 0))
+        }
+    }
+
     // macOS virtual key codes to Linux evdev key codes
     private func macKeyCodeToEvdev(_ keyCode: UInt16) -> UInt16? {
         return Self.keyMap[keyCode]

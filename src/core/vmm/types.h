@@ -11,6 +11,12 @@
 #include <functional>
 #include <stdexcept>
 #include <cstdio>
+#include <mutex>
+
+inline std::mutex& GetStdoutMutex() {
+    static std::mutex m;
+    return m;
+}
 
 using GPA = uint64_t;
 using HVA = uint8_t*;
@@ -52,12 +58,20 @@ struct GuestMemMap {
     uint64_t TotalRam() const { return alloc_size; }
 };
 
-#define LOG_INFO(fmt, ...)  fprintf(stdout, "[INFO]  " fmt "\r\n", ##__VA_ARGS__)
+#define LOG_INFO(fmt, ...)  do { \
+    std::lock_guard<std::mutex> _lk(GetStdoutMutex()); \
+    fprintf(stdout, "[INFO]  " fmt "\r\n", ##__VA_ARGS__); \
+    fflush(stdout); \
+} while (0)
 #define LOG_WARN(fmt, ...)  fprintf(stderr, "[WARN]  " fmt "\r\n", ##__VA_ARGS__)
 #define LOG_ERROR(fmt, ...) fprintf(stderr, "[ERROR] " fmt "\r\n", ##__VA_ARGS__)
 
 #ifdef _DEBUG
-#define LOG_DEBUG(fmt, ...) fprintf(stdout, "[DEBUG] " fmt "\r\n", ##__VA_ARGS__)
+#define LOG_DEBUG(fmt, ...) do { \
+    std::lock_guard<std::mutex> _lk(GetStdoutMutex()); \
+    fprintf(stdout, "[DEBUG] " fmt "\r\n", ##__VA_ARGS__); \
+    fflush(stdout); \
+} while (0)
 #else
 #define LOG_DEBUG(fmt, ...) ((void)0)
 #endif

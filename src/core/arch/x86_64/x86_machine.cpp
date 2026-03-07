@@ -119,6 +119,12 @@ void X86Machine::InjectIrq(HypervisorVm* hv_vm, uint8_t irq) {
     hv_vm->RequestInterrupt(req);
 }
 
+void X86Machine::SetIrqLevel(HypervisorVm* hv_vm, uint8_t irq, bool asserted) {
+    if (asserted) {
+        InjectIrq(hv_vm, irq);
+    }
+}
+
 void X86Machine::InjectConsoleInput(const uint8_t* data, size_t size) {
     if (!data || size == 0) return;
     for (size_t i = 0; i < size; ++i) {

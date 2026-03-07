@@ -4,6 +4,11 @@
 #include <memory>
 #include <string>
 
+#ifdef _WIN32
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 namespace ipc {
 
 // Platform-agnostic bidirectional byte-stream transport between the

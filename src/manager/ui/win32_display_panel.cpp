@@ -502,6 +502,19 @@ void DisplayPanel::HandleMouse(UINT msg, WPARAM wp, LPARAM lp) {
     }
 }
 
+void DisplayPanel::ReleaseAllModifiers() {
+    if (!key_cb_) return;
+    static constexpr uint32_t kModifiers[] = {
+        evdev::KEY_LEFTCTRL,  evdev::KEY_RIGHTCTRL,
+        evdev::KEY_LEFTSHIFT, evdev::KEY_RIGHTSHIFT,
+        evdev::KEY_LEFTALT,   evdev::KEY_RIGHTALT,
+        evdev::KEY_LEFTMETA,  evdev::KEY_RIGHTMETA,
+    };
+    for (uint32_t code : kModifiers) {
+        key_cb_(code, false);
+    }
+}
+
 void DisplayPanel::SetCaptured(bool captured) {
     if (captured_ == captured) return;
     captured_ = captured;
