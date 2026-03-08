@@ -551,7 +551,7 @@ mkdir -p /etc/polkit-1/rules.d
 cp /tmp/rootfs-services/50-user-power.rules /etc/polkit-1/rules.d/
 
 mkdir -p /etc/systemd/system/serial-getty@ttyS0.service.d
-cp /tmp/rootfs-services/serial-getty-ttyS0-autologin.conf /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf
+cp /tmp/rootfs-services/serial-getty-autologin.conf /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf
 
 mkdir -p /etc/lightdm/lightdm.conf.d
 cat > /etc/lightdm/lightdm.conf.d/50-autologin.conf << LDM

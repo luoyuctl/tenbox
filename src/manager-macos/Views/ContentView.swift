@@ -3,6 +3,8 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var showDeleteConfirm = false
+    @State private var showForceStopConfirm = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -39,7 +41,7 @@ struct ContentView: View {
                     .disabled(vm.state == .running)
 
                     Button(role: .destructive, action: {
-                        appState.deleteVm(id: vmId)
+                        showDeleteConfirm = true
                     }) {
                         Label("Delete", systemImage: "trash")
                     }
@@ -54,7 +56,7 @@ struct ContentView: View {
                     }
 
                     if vm.state == .running {
-                        Button(action: { appState.stopVm(id: vmId) }) {
+                        Button(action: { showForceStopConfirm = true }) {
                             Label("Force Stop", systemImage: "stop.fill")
                         }
 
@@ -64,6 +66,15 @@ struct ContentView: View {
 
                         Button(action: { appState.shutdownVm(id: vmId) }) {
                             Label("Shutdown", systemImage: "power")
+                        }
+
+                        Divider()
+
+                        Button(action: {
+                            appState.setDisplayScale(vm.displayScale == 1 ? 2 : 1, forVm: vmId)
+                        }) {
+                            Label(vm.displayScale == 2 ? "Display 1x" : "Display 2x",
+                                  systemImage: vm.displayScale == 2 ? "minus.magnifyingglass" : "plus.magnifyingglass")
                         }
                     }
                 }
@@ -76,6 +87,32 @@ struct ContentView: View {
             if let vmId = appState.selectedVmId,
                let vm = appState.vms.first(where: { $0.id == vmId }) {
                 EditVmDialog(vm: vm)
+            }
+        }
+        .alert("Delete VM", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                if let vmId = appState.selectedVmId {
+                    appState.deleteVm(id: vmId)
+                }
+            }
+        } message: {
+            if let vmId = appState.selectedVmId,
+               let vm = appState.vms.first(where: { $0.id == vmId }) {
+                Text("Are you sure you want to delete \"\(vm.name)\"? This action cannot be undone.")
+            }
+        }
+        .alert("Force Stop VM", isPresented: $showForceStopConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Force Stop", role: .destructive) {
+                if let vmId = appState.selectedVmId {
+                    appState.stopVm(id: vmId)
+                }
+            }
+        } message: {
+            if let vmId = appState.selectedVmId,
+               let vm = appState.vms.first(where: { $0.id == vmId }) {
+                Text("Are you sure you want to force stop \"\(vm.name)\"? Unsaved data may be lost.")
             }
         }
     }

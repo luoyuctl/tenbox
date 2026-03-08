@@ -149,6 +149,10 @@ static NSString* GetVmsDir() {
         info.state = state;
         info.netEnabled = [dict[@"net_enabled"] boolValue];
         info.cmdline = dict[@"cmdline"] ?: @"";
+        NSNumber* displayScaleNum = dict[@"display_scale"];
+        info.displayScale = displayScaleNum ? [displayScaleNum integerValue] : 1;
+        if (info.displayScale < 1) info.displayScale = 1;
+        if (info.displayScale > 2) info.displayScale = 2;
 
         NSMutableArray<TBSharedFolder *>* folders = [NSMutableArray array];
         NSArray* sfArray = dict[@"shared_folders"];
@@ -213,6 +217,7 @@ static NSString* GetVmsDir() {
         @"cpu_count": @(config.cpuCount),
         @"net_enabled": @(config.netEnabled),
         @"state": @"stopped",
+        @"display_scale": @1,
         @"shared_folders": @[],
         @"port_forwards": @[],
     };
@@ -607,6 +612,26 @@ static NSString* GetVmsDir() {
 
 - (void)shutdownVmWithId:(NSString *)vmId {
     SendControlCommand(vmId.UTF8String, "shutdown");
+}
+
+- (BOOL)setDisplayScale:(NSInteger)scale forVm:(NSString *)vmId {
+    NSString* vmDir = [GetVmsDir() stringByAppendingPathComponent:vmId];
+    NSString* configPath = [vmDir stringByAppendingPathComponent:@"config.json"];
+    NSData* data = [NSData dataWithContentsOfFile:configPath];
+    if (!data) return NO;
+
+    NSMutableDictionary* config = [[NSJSONSerialization JSONObjectWithData:data
+                                                                  options:NSJSONReadingMutableContainers
+                                                                    error:nil] mutableCopy];
+    if (!config) return NO;
+
+    NSInteger clamped = MAX(1, MIN(2, scale));
+    config[@"display_scale"] = @(clamped);
+
+    NSData* newData = [NSJSONSerialization dataWithJSONObject:config
+                                                     options:NSJSONWritingPrettyPrinted
+                                                       error:nil];
+    return [newData writeToFile:configPath atomically:YES];
 }
 
 // ── Shared folder helpers ─────────────────────────────────────────

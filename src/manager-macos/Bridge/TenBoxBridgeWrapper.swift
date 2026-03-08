@@ -25,7 +25,8 @@ class TenBoxBridgeWrapper {
                 netEnabled: info.netEnabled,
                 cmdline: info.cmdline,
                 sharedFolders: folders,
-                portForwards: pfs
+                portForwards: pfs,
+                displayScale: max(1, min(2, Int(info.displayScale)))
             )
         }
     }
@@ -100,6 +101,10 @@ class TenBoxBridgeWrapper {
 
     func removePortForward(hostPort: UInt16, fromVm vmId: String) -> Bool {
         return bridge.removePortForward(withHostPort: hostPort, fromVm: vmId)
+    }
+
+    func setDisplayScale(_ scale: Int, forVm vmId: String) -> Bool {
+        return bridge.setDisplayScale(scale, forVm: vmId)
     }
 
     func stopAllVms() {

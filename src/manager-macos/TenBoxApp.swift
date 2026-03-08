@@ -111,6 +111,9 @@ class AppState: ObservableObject {
             return existing
         }
         let session = VmSession(vmId: vmId)
+        if let vm = vms.first(where: { $0.id == vmId }) {
+            session.displayScale = vm.displayScale
+        }
         activeSessions[vmId] = session
         return session
     }
@@ -174,6 +177,16 @@ class AppState: ObservableObject {
             session.ipcClient.sendControl("shutdown")
         } else {
             bridge.shutdownVm(id: id)
+        }
+    }
+
+    func setDisplayScale(_ scale: Int, forVm vmId: String) {
+        let clamped = max(1, min(2, scale))
+        _ = bridge.setDisplayScale(clamped, forVm: vmId)
+        refreshVmList()
+        if let session = activeSessions[vmId] {
+            session.displayScale = clamped
+            session.resendDisplaySize()
         }
     }
 

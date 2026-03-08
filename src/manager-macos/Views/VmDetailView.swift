@@ -18,6 +18,7 @@ class VmSession: ObservableObject {
     var lastResizeFromVmTime: CFTimeInterval = 0
     var displayViewSize: CGSize = .zero
     @Published var activeTab = 0
+    var displayScale: Int = 1
 
     private let bridge = TenBoxBridgeWrapper()
     private var connecting = false
@@ -113,6 +114,20 @@ class VmSession: ObservableObject {
                 self.connecting = false
             }
         }
+    }
+
+    func resendDisplaySize() {
+        guard connected, displayViewSize.width > 0, displayViewSize.height > 0 else { return }
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let effectiveScale = backingScale / CGFloat(displayScale)
+        var w = UInt32(displayViewSize.width * effectiveScale)
+        let h = UInt32(displayViewSize.height * effectiveScale)
+        w = (w + 7) & ~7
+        guard w > 0 && h > 0 else { return }
+        lastSentDisplayW = w
+        lastSentDisplayH = h
+        print("[VmSession] resendDisplaySize \(w)x\(h) (displayScale=\(displayScale))")
+        ipcClient.sendDisplaySetSize(width: w, height: h)
     }
 
     func disconnect() {
@@ -226,9 +241,10 @@ struct VmDetailView: View {
         guard let window = NSApplication.shared.keyWindow else { return }
         guard let screen = window.screen ?? NSScreen.main else { return }
 
-        let scale = screen.backingScaleFactor
-        let pointW = guestSize.width / scale
-        let pointH = guestSize.height / scale
+        let backingScale = screen.backingScaleFactor
+        let effectiveScale = backingScale / CGFloat(session.displayScale)
+        let pointW = guestSize.width / effectiveScale
+        let pointH = guestSize.height / effectiveScale
 
         let extraW = Self.chromeExtraW
         let extraH = Self.chromeExtraH
@@ -243,7 +259,7 @@ struct VmDetailView: View {
 
         window.minSize = NSSize(width: minFrameW, height: minFrameH)
 
-        print("[resizeWindow] guest=\(guestSize.width)x\(guestSize.height) scale=\(scale) pointSize=\(pointW)x\(pointH)")
+        print("[resizeWindow] guest=\(guestSize.width)x\(guestSize.height) backingScale=\(backingScale) displayScale=\(session.displayScale) pointSize=\(pointW)x\(pointH)")
         print("[resizeWindow] chrome=\(extraW)x\(extraH) desired=\(desiredW)x\(desiredH)")
 
         let maxFrame = screen.visibleFrame

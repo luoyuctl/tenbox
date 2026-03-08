@@ -631,7 +631,7 @@ mkdir -p /etc/polkit-1/rules.d
 cp /tmp/rootfs-services/50-user-power.rules /etc/polkit-1/rules.d/
 
 mkdir -p /etc/systemd/system/serial-getty@ttyAMA0.service.d
-cp /tmp/rootfs-services/serial-getty-ttyAMA0-autologin.conf /etc/systemd/system/serial-getty@ttyAMA0.service.d/autologin.conf
+cp /tmp/rootfs-services/serial-getty-autologin.conf /etc/systemd/system/serial-getty@ttyAMA0.service.d/autologin.conf
 
 systemctl enable serial-getty@ttyAMA0.service 2>/dev/null || true
 

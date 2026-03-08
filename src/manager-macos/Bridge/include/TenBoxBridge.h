@@ -30,6 +30,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *cmdline;
 @property (nonatomic, copy) NSArray<TBSharedFolder *> *sharedFolders;
 @property (nonatomic, copy) NSArray<TBPortForward *> *portForwards;
+@property (nonatomic, assign) NSInteger displayScale;
 @end
 
 @interface TBVmCreateConfig : NSObject
@@ -57,6 +58,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)addSharedFolder:(TBSharedFolder *)folder toVm:(NSString *)vmId;
 - (BOOL)removeSharedFolderWithTag:(NSString *)tag fromVm:(NSString *)vmId;
 - (BOOL)setSharedFolders:(NSArray<TBSharedFolder *> *)folders forVm:(NSString *)vmId;
+
+// Display scale management
+- (BOOL)setDisplayScale:(NSInteger)scale forVm:(NSString *)vmId;
 
 // Port forward management
 - (BOOL)addPortForward:(TBPortForward *)pf toVm:(NSString *)vmId;

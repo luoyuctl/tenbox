@@ -52,6 +52,7 @@ struct VmInfo: Identifiable, Codable {
     let cmdline: String
     let sharedFolders: [SharedFolder]
     let portForwards: [PortForward]
+    let displayScale: Int
 }
 
 struct VmCreateConfig {

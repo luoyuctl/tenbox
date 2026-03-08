@@ -82,9 +82,10 @@ class DisplayViewModel: ObservableObject {
     }
 
     func notifyDisplaySizeIfNeeded(_ size: CGSize, session: VmSession) {
-        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
-        var w = UInt32(size.width * scale)
-        let h = UInt32(size.height * scale)
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let effectiveScale = backingScale / CGFloat(session.displayScale)
+        var w = UInt32(size.width * effectiveScale)
+        let h = UInt32(size.height * effectiveScale)
         w = (w + 7) & ~7
         guard w > 0 && h > 0 else { return }
 
@@ -100,7 +101,7 @@ class DisplayViewModel: ObservableObject {
             guard elapsed > 1.0 else { return }
             session.lastSentDisplayW = w
             session.lastSentDisplayH = h
-            print("[DisplayView] sending display.set_size \(w)x\(h) (view: \(size.width)x\(size.height), scale: \(scale))")
+            print("[DisplayView] sending display.set_size \(w)x\(h) (view: \(size.width)x\(size.height), displayScale: \(session.displayScale))")
             client.sendDisplaySetSize(width: w, height: h)
         }
     }
