@@ -6,7 +6,6 @@
 #
 # Prerequisites:
 #   - TenBox.app must be a valid macOS application bundle
-#   - create-dmg (brew install create-dmg) is recommended but not required
 #
 # The script creates a DMG with:
 #   - TenBox.app
@@ -23,7 +22,6 @@ ARCH=$(uname -m)  # arm64 or x86_64
 APP_PATH="${1:-$BUILD_DIR/TenBox.app}"
 OUTPUT="${2:-$BUILD_DIR/TenBox_${ARCH}.dmg}"
 VOLUME_NAME="TenBox"
-TEMP_DMG="$BUILD_DIR/TenBox-temp.dmg"
 
 if [ ! -d "$APP_PATH" ]; then
     echo "Error: Application bundle not found: $APP_PATH"
@@ -49,39 +47,65 @@ if [ ! -f "$RUNTIME_IN_APP" ] && [ -f "$RUNTIME_BUILD" ]; then
 fi
 
 # Sign the app if a signing identity is available
+ENTITLEMENTS="$SCRIPT_DIR/../src/manager-macos/Resources/TenBox.entitlements"
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID"; then
     IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID" | head -1 | awk -F'"' '{print $2}')
     echo "Signing with: $IDENTITY"
     codesign --deep --force --options runtime \
-        --entitlements "$SCRIPT_DIR/../src/manager-macos/Resources/TenBox.entitlements" \
+        --entitlements "$ENTITLEMENTS" \
         --sign "$IDENTITY" "$APP_PATH"
 else
     echo "No Developer ID found, signing with ad-hoc identity..."
     codesign --deep --force --options runtime \
-        --entitlements "$SCRIPT_DIR/../src/manager-macos/Resources/TenBox.entitlements" \
+        --entitlements "$ENTITLEMENTS" \
         --sign - "$APP_PATH"
 fi
 
-# Notarize the .app before packaging into DMG, so the stapled ticket
-# is embedded inside the DMG and works offline for end users.
+# ── Create DMG ───────────────────────────────────────────────────────────────
+# macOS 26.3+ blocks creating .app bundles on external/removable volumes,
+# which breaks the traditional hdiutil create -srcfolder approach.
+# Use hdiutil makehybrid instead: it builds the HFS image directly from
+# the local staging directory without mounting any intermediate volume.
+
+rm -f "$OUTPUT"
+
+STAGING_DIR="$BUILD_DIR/dmg-staging"
+rm -rf "$STAGING_DIR"
+mkdir -p "$STAGING_DIR"
+
+ditto "$APP_PATH" "$STAGING_DIR/$(basename "$APP_PATH")"
+ln -s /Applications "$STAGING_DIR/Applications"
+
+echo "Creating DMG..."
+UNCOMPRESSED_DMG="$BUILD_DIR/TenBox-uncompressed.dmg"
+rm -f "$UNCOMPRESSED_DMG"
+
+hdiutil makehybrid -o "$UNCOMPRESSED_DMG" "$STAGING_DIR" \
+    -hfs -default-volume-name "$VOLUME_NAME"
+
+hdiutil convert "$UNCOMPRESSED_DMG" -format UDZO \
+    -imagekey zlib-level=9 -o "$OUTPUT"
+
+rm -f "$UNCOMPRESSED_DMG"
+rm -rf "$STAGING_DIR"
+
+echo "  -> DMG created: $OUTPUT"
+
+# ── Notarize the DMG ────────────────────────────────────────────────────────
 if xcrun notarytool history --keychain-profile "AC_PASSWORD" >/dev/null 2>&1; then
     echo ""
-    echo "Submitting .app for Apple notarization..."
+    echo "Submitting DMG for Apple notarization..."
     echo "(This typically takes 2-10 minutes)"
 
-    ZIP_FOR_NOTARY="$BUILD_DIR/TenBox-notarize.zip"
-    ditto -c -k --keepParent "$APP_PATH" "$ZIP_FOR_NOTARY"
-
-    xcrun notarytool submit "$ZIP_FOR_NOTARY" \
+    xcrun notarytool submit "$OUTPUT" \
         --keychain-profile "AC_PASSWORD" \
         --wait
     NOTARY_EXIT=$?
-    rm -f "$ZIP_FOR_NOTARY"
 
     if [ $NOTARY_EXIT -eq 0 ]; then
         echo ""
-        echo "Stapling notarization ticket to .app..."
-        xcrun stapler staple "$APP_PATH"
+        echo "Stapling notarization ticket to DMG..."
+        xcrun stapler staple "$OUTPUT"
         echo "Notarization complete!"
     else
         echo ""
@@ -95,51 +119,6 @@ else
     echo "To enable, run:"
     echo "  xcrun notarytool store-credentials AC_PASSWORD \\"
     echo "      --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID --password APP_SPECIFIC_PASSWORD"
-fi
-
-# Remove old DMG if exists
-rm -f "$OUTPUT" "$TEMP_DMG" "${TEMP_DMG}.sparseimage"
-
-# Try create-dmg if available (pretty DMG with background)
-if command -v create-dmg &>/dev/null; then
-    echo "Creating DMG with create-dmg..."
-    create-dmg \
-        --volname "$VOLUME_NAME" \
-        --window-pos 200 120 \
-        --window-size 600 400 \
-        --icon-size 100 \
-        --icon "TenBox.app" 150 200 \
-        --app-drop-link 450 200 \
-        --no-internet-enable \
-        "$OUTPUT" \
-        "$APP_PATH"
-else
-    echo "Creating DMG with hdiutil..."
-    SIZE_KB=$(du -sk "$APP_PATH" | cut -f1)
-    SIZE_KB=$((SIZE_KB + 10240))  # Add 10MB headroom
-
-    hdiutil create -size "${SIZE_KB}k" -fs HFS+ -volname "$VOLUME_NAME" \
-        -type SPARSE "$TEMP_DMG"
-
-    # Detach any stale mount of the same volume name
-    if [ -d "/Volumes/$VOLUME_NAME" ]; then
-        hdiutil detach "/Volumes/$VOLUME_NAME" 2>/dev/null || true
-    fi
-
-    hdiutil attach "${TEMP_DMG}.sparseimage" -readwrite -noverify -mountpoint "/Volumes/$VOLUME_NAME"
-    MOUNT_POINT="/Volumes/$VOLUME_NAME"
-
-    cp -R "$APP_PATH" "$MOUNT_POINT/"
-    ln -s /Applications "$MOUNT_POINT/Applications"
-
-    # Eject
-    hdiutil detach "$MOUNT_POINT"
-
-    # Convert sparse to compressed DMG
-    hdiutil convert "${TEMP_DMG}.sparseimage" -format UDZO \
-        -imagekey zlib-level=9 -o "$OUTPUT"
-
-    rm -f "${TEMP_DMG}.sparseimage"
 fi
 
 echo ""

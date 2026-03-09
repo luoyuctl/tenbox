@@ -107,10 +107,12 @@ cp "$SWIFT_BUILD_DIR/TenBoxManager" "$APP_DIR/Contents/MacOS/TenBoxManager"
 cp "$BUILD_DIR/tenbox-vm-runtime" "$APP_DIR/Contents/MacOS/tenbox-vm-runtime"
 
 # Copy SPM resource bundles (icon, etc.)
-BUNDLE_PATH=$(find "$SWIFT_BUILD_DIR" -name "TenBoxManager_TenBoxManager.bundle" -type d 2>/dev/null | head -1)
+BUNDLE_PATH=$(find -L "$SWIFT_BUILD_DIR" -name "TenBoxManager_TenBoxManager.bundle" -type d 2>/dev/null | head -1)
 if [ -n "$BUNDLE_PATH" ] && [ -d "$BUNDLE_PATH" ]; then
     cp -R "$BUNDLE_PATH" "$APP_DIR/Contents/Resources/"
     echo "  -> Copied resource bundle"
+else
+    echo "WARNING: TenBoxManager_TenBoxManager.bundle not found!"
 fi
 
 # Convert icon.png to AppIcon.icns (macOS requires .icns format)
@@ -149,7 +151,7 @@ if [ -f "$METAL_SRC" ]; then
 fi
 
 # Copy Sparkle framework from SPM build artifacts
-SPARKLE_FRAMEWORK=$(find "$MANAGER_SRC/.build/artifacts" -name "Sparkle.framework" -type d 2>/dev/null | head -1)
+SPARKLE_FRAMEWORK=$(find -L "$MANAGER_SRC/.build/artifacts" -name "Sparkle.framework" -type d 2>/dev/null | head -1)
 if [ -n "$SPARKLE_FRAMEWORK" ] && [ -d "$SPARKLE_FRAMEWORK" ]; then
     mkdir -p "$APP_DIR/Contents/Frameworks"
     cp -R "$SPARKLE_FRAMEWORK" "$APP_DIR/Contents/Frameworks/"
@@ -185,7 +187,7 @@ echo "Creating Sparkle update ZIP..."
 ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
 echo "  -> $ZIP_PATH"
 
-SIGN_TOOL=$(find "$MANAGER_SRC/.build/artifacts" -name "sign_update" -type f 2>/dev/null | head -1)
+SIGN_TOOL=$(find -L "$MANAGER_SRC/.build/artifacts" -name "sign_update" -type f 2>/dev/null | head -1)
 if [ -n "$SIGN_TOOL" ] && [ -x "$SIGN_TOOL" ]; then
     echo ""
     echo "Signing ZIP with Sparkle EdDSA key..."

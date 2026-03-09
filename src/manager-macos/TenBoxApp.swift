@@ -48,12 +48,16 @@ struct TenBoxApp: App {
     }
 
     private static func makeAppIcon() -> NSImage? {
-        guard let url = Bundle.module.url(forResource: "icon", withExtension: "png"),
-              let image = NSImage(contentsOf: url) else {
-            return nil
+        if let image = NSImage(named: "AppIcon") {
+            image.size = NSSize(width: 256, height: 256)
+            return image
         }
-        image.size = NSSize(width: 256, height: 256)
-        return image
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            image.size = NSSize(width: 256, height: 256)
+            return image
+        }
+        return nil
     }
 
     private static func showAboutPanel() {
