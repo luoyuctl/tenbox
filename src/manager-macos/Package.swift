@@ -7,10 +7,16 @@ let package = Package(
     products: [
         .executable(name: "TenBoxManager", targets: ["TenBoxManager"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+    ],
     targets: [
         .executableTarget(
             name: "TenBoxManager",
-            dependencies: ["TenBoxBridge"],
+            dependencies: [
+                "TenBoxBridge",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: ".",
             exclude: ["Bridge/include", "Bridge/Sources",
                        "Bridge/TenBox-Bridging-Header.h",
@@ -34,6 +40,7 @@ let package = Package(
                 "Bridge/Models.swift",
                 "Bridge/TenBoxBridgeWrapper.swift",
                 "Bridge/IpcClientWrapper.swift",
+                "Services/ImageSourceService.swift",
             ],
             resources: [
                 .copy("Resources/icon.png"),

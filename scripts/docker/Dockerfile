@@ -4,13 +4,13 @@
 # Includes a qemu-img built from source with zstd support.
 #
 # Usage (via build.sh wrapper):
-#   ./scripts/docker/build.sh arm64 rootfs
-#   ./scripts/docker/build.sh x86_64 rootfs
+#   ./scripts/docker/build.sh arm64 rootfs-chromium
+#   ./scripts/docker/build.sh x86_64 rootfs-chromium
 #
 # Or manually:
 #   docker build -t tenbox-builder scripts/docker/
 #   docker run --privileged -v $(pwd):/workspace tenbox-builder \
-#       /workspace/scripts/arm64/make-rootfs-base.sh
+#       /workspace/scripts/arm64/make-rootfs-chromium.sh
 
 # --- Stage 1: build qemu-img with zstd ---
 FROM debian:bookworm-slim AS qemu-build

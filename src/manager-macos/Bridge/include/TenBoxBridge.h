@@ -41,6 +41,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) NSInteger memoryMb;
 @property (nonatomic, assign) NSInteger cpuCount;
 @property (nonatomic, assign) BOOL netEnabled;
+@property (nonatomic, copy) NSString *sourceDir;
 @end
 
 @interface TBBridge : NSObject

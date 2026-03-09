@@ -208,11 +208,32 @@ static NSString* GetVmsDir() {
         return NO;
     }
 
+    NSString* kernelPath = config.kernelPath ?: @"";
+    NSString* initrdPath = config.initrdPath ?: @"";
+    NSString* diskPath = config.diskPath ?: @"";
+
+    // Copy source files into the VM directory so each VM is self-contained.
+    NSString* (^CopyFile)(NSString*) = ^NSString*(NSString* srcPath) {
+        if (srcPath.length == 0) return @"";
+        NSString* fileName = [srcPath lastPathComponent];
+        NSString* dest = [vmDir stringByAppendingPathComponent:fileName];
+        NSError* err = nil;
+        if ([fm copyItemAtPath:srcPath toPath:dest error:&err]) {
+            return dest;
+        }
+        NSLog(@"Failed to copy %@ -> %@: %@", srcPath, dest, err);
+        return srcPath;
+    };
+
+    if (kernelPath.length > 0) kernelPath = CopyFile(kernelPath);
+    if (initrdPath.length > 0) initrdPath = CopyFile(initrdPath);
+    if (diskPath.length > 0) diskPath = CopyFile(diskPath);
+
     NSDictionary* dict = @{
         @"name": config.name ?: @"",
-        @"kernel_path": config.kernelPath ?: @"",
-        @"initrd_path": config.initrdPath ?: @"",
-        @"disk_path": config.diskPath ?: @"",
+        @"kernel_path": kernelPath,
+        @"initrd_path": initrdPath,
+        @"disk_path": diskPath,
         @"memory_mb": @(config.memoryMb),
         @"cpu_count": @(config.cpuCount),
         @"net_enabled": @(config.netEnabled),

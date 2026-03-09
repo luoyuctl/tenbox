@@ -104,3 +104,32 @@ echo ""
 echo "============================================"
 echo "DMG created: $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"
 echo "============================================"
+
+# Notarize the DMG if credentials are available
+if xcrun notarytool history --keychain-profile "AC_PASSWORD" >/dev/null 2>&1; then
+    echo ""
+    echo "Submitting DMG for Apple notarization..."
+    echo "(This typically takes 2-10 minutes)"
+    echo ""
+    xcrun notarytool submit "$OUTPUT" \
+        --keychain-profile "AC_PASSWORD" \
+        --wait
+    NOTARY_EXIT=$?
+    if [ $NOTARY_EXIT -eq 0 ]; then
+        echo ""
+        echo "Stapling notarization ticket to DMG..."
+        xcrun stapler staple "$OUTPUT"
+        echo ""
+        echo "Notarization complete! DMG is ready for distribution."
+    else
+        echo ""
+        echo "WARNING: Notarization failed (exit code $NOTARY_EXIT)."
+        echo "  Check details: xcrun notarytool log <submission-id> --keychain-profile AC_PASSWORD"
+    fi
+else
+    echo ""
+    echo "Skipping notarization (no AC_PASSWORD keychain profile found)."
+    echo "To enable, run:"
+    echo "  xcrun notarytool store-credentials AC_PASSWORD \\"
+    echo "      --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID --password APP_SPECIFIC_PASSWORD"
+fi

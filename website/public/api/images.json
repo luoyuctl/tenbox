@@ -92,6 +92,99 @@
           "size": 864616448
         }
       ]
+    },
+    {
+      "id": "chromium-arm64",
+      "version": "12",
+      "name": "Chromium (ARM64)",
+      "description": "一个基于 Debian 12 xfce4 的桌面环境，预装了 Chromium 浏览器。",
+      "min_app_version": "0.1.0",
+      "os": "linux",
+      "arch": "microvm",
+      "platform": "arm64",
+      "updated_at": "2026-03-09",
+      "files": [
+        {
+          "name": "vmlinuz",
+          "url": "https://files.xiaozhi.me/tenbox/images/chromium-arm64/Image-arm64",
+          "sha256": "cc767b98c8f14ad16c761cd3f3bc8a5e033d0e416d48dc958e0d6af0bd14feb8",
+          "size": 32888768
+        },
+        {
+          "name": "initrd.gz",
+          "url": "https://files.xiaozhi.me/tenbox/images/chromium-arm64/initramfs-arm64.cpio.gz",
+          "sha256": "5aac5c2977fc0b6968ef87753adda3fe081d45285fc71de48fa3f831b93b2552",
+          "size": 2941870
+        },
+        {
+          "name": "rootfs.qcow2",
+          "url": "https://files.xiaozhi.me/tenbox/images/chromium-arm64/rootfs-chromium-arm64.qcow2",
+          "sha256": "d577eb05fd2fb2ad15e7689342ce6b4fa66294ec94c471dd589f35e770c073b4",
+          "size": 847380480
+        }
+      ]
+    },
+    {
+      "id": "copaw-arm64",
+      "version": "0.0.5.post1",
+      "name": "CoPaw 0.0.5.post1 (ARM64)",
+      "description": "一个基于 Debian 12 xfce4 的桌面环境，预装了 CoPaw 和 Chromium 浏览器。",
+      "min_app_version": "0.1.0",
+      "os": "linux",
+      "arch": "microvm",
+      "platform": "arm64",
+      "updated_at": "2026-03-09",
+      "files": [
+        {
+          "name": "vmlinuz",
+          "url": "https://files.xiaozhi.me/tenbox/images/copaw-arm64/Image-arm64",
+          "sha256": "cc767b98c8f14ad16c761cd3f3bc8a5e033d0e416d48dc958e0d6af0bd14feb8",
+          "size": 32888768
+        },
+        {
+          "name": "initrd.gz",
+          "url": "https://files.xiaozhi.me/tenbox/images/copaw-arm64/initramfs-arm64.cpio.gz",
+          "sha256": "5aac5c2977fc0b6968ef87753adda3fe081d45285fc71de48fa3f831b93b2552",
+          "size": 2941870
+        },
+        {
+          "name": "rootfs.qcow2",
+          "url": "https://files.xiaozhi.me/tenbox/images/copaw-arm64/rootfs-copaw-arm64-0.0.5.post1.qcow2",
+          "sha256": "f367e72db0892d0e0faea43ed62fb6f3b3af3fdf86e4c1596664b08500f6b96b",
+          "size": 1192622592
+        }
+      ]
+    },
+    {
+      "id": "openclaw-arm64",
+      "version": "2026.3.7",
+      "name": "OpenClaw 2026.3.7 (ARM64)",
+      "description": "一个基于 Debian 12 的环境，预装了 OpenClaw 和 Chromium 浏览器。",
+      "min_app_version": "0.1.0",
+      "os": "linux",
+      "arch": "microvm",
+      "platform": "arm64",
+      "updated_at": "2026-03-09",
+      "files": [
+        {
+          "name": "vmlinuz",
+          "url": "https://files.xiaozhi.me/tenbox/images/openclaw-arm64/Image-arm64",
+          "sha256": "cc767b98c8f14ad16c761cd3f3bc8a5e033d0e416d48dc958e0d6af0bd14feb8",
+          "size": 32888768
+        },
+        {
+          "name": "initrd.gz",
+          "url": "https://files.xiaozhi.me/tenbox/images/openclaw-arm64/initramfs-arm64.cpio.gz",
+          "sha256": "5aac5c2977fc0b6968ef87753adda3fe081d45285fc71de48fa3f831b93b2552",
+          "size": 2941870
+        },
+        {
+          "name": "rootfs.qcow2",
+          "url": "https://files.xiaozhi.me/tenbox/images/openclaw-arm64/rootfs-openclaw-arm64-2026.3.7.qcow2",
+          "sha256": "565c222992cc45c3164fda3cf8eac921e82b99bb94df34478dd84f8cfec7454e",
+          "size": 1481501696
+        }
+      ]
     }
   ]
 }

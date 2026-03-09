@@ -79,12 +79,13 @@ void SharedFramebuffer::Close() {
 
 std::string GetSharedFramebufferName(const std::string& vm_id) {
     // Keep consistent with POSIX naming (strip hyphens, truncate).
+    // Caller appends "_<generation>" so leave room for that suffix.
     std::string compact;
     compact.reserve(32);
     for (char c : vm_id) {
         if (c != '-') compact += c;
     }
-    return "tb_" + compact.substr(0, 26);
+    return "tb_" + compact.substr(0, 22);
 }
 
 }  // namespace ipc

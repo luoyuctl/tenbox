@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>TenBox</title>
+    <link>https://tenbox.ai/api/appcast.xml</link>
+    <description>TenBox macOS Updates</description>
+    <language>zh-CN</language>
+    <item>
+      <title>Version 0.3.0</title>
+      <description><![CDATA[
+        <ul>
+          <li>支持使用本地镜像创建虚拟机</li>
+          <li>优化屏幕显示（使用共享内存）</li>
+          <li>优化端口转发列表显示</li>
+          <li>使对话框父窗体居中</li>
+          <li>修复Ctrl，Alt未释放导致的输入问题</li>
+        </ul>
+      ]]></description>
+      <pubDate>Mon, 09 Mar 2026 00:00:00 +0000</pubDate>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://files.xiaozhi.me/tenbox/releases/TenBox_0.3.0.zip"
+        sparkle:version="0.3.0"
+        sparkle:shortVersionString="0.3.0"
+        sparkle:edSignature=""
+        length="0"
+        type="application/octet-stream"
+      />
+    </item>
+  </channel>
+</rss>

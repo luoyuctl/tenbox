@@ -15,7 +15,9 @@ import sys
 import threading
 import time
 import tkinter as tk
-from datetime import date
+import xml.etree.ElementTree as ET
+from datetime import date, datetime
+from email.utils import format_datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -33,6 +35,67 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPTS_DIR.parent
 IMAGES_JSON_PATH = PROJECT_DIR / "website" / "public" / "api" / "images.json"
 VERSION_JSON_PATH = PROJECT_DIR / "website" / "public" / "api" / "version.json"
+APPCAST_XML_PATH = PROJECT_DIR / "website" / "public" / "api" / "appcast.xml"
+
+SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+DC_NS = "http://purl.org/dc/elements/1.1/"
+
+
+def generate_appcast_xml(mac_info: dict) -> str:
+    """Build an appcast.xml string from macOS release info.
+
+    ``mac_info`` keys: latest_version, release_notes, release_date,
+    download_url, sha256, size, min_os, ed_signature.
+    """
+    version = mac_info.get("latest_version", "")
+    notes = mac_info.get("release_notes", "")
+    release_date = mac_info.get("release_date", "")
+    download_url = mac_info.get("download_url", "")
+    ed_signature = mac_info.get("ed_signature", "")
+    size = mac_info.get("size", 0)
+    min_os = mac_info.get("min_os", "14.0").replace("macOS ", "")
+
+    notes_html_lines = "".join(
+        f"          <li>{line}</li>\n"
+        for line in notes.replace("\r\n", "\n").split("\n")
+        if line.strip()
+    )
+    description_html = (
+        f"        <ul>\n{notes_html_lines}        </ul>"
+    )
+
+    try:
+        dt = datetime.fromisoformat(release_date)
+        pub_date = format_datetime(dt)
+    except Exception:
+        pub_date = release_date
+
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="{SPARKLE_NS}" xmlns:dc="{DC_NS}">
+  <channel>
+    <title>TenBox</title>
+    <link>https://tenbox.ai/api/appcast.xml</link>
+    <description>TenBox macOS Updates</description>
+    <language>zh-CN</language>
+    <item>
+      <title>Version {version}</title>
+      <description><![CDATA[
+{description_html}
+      ]]></description>
+      <pubDate>{pub_date}</pubDate>
+      <sparkle:minimumSystemVersion>{min_os}</sparkle:minimumSystemVersion>
+      <enclosure
+        url="{download_url}"
+        sparkle:version="{version}"
+        sparkle:shortVersionString="{version}"
+        sparkle:edSignature="{ed_signature}"
+        length="{size}"
+        type="application/octet-stream"
+      />
+    </item>
+  </channel>
+</rss>
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +200,7 @@ class UploadDialog(tk.Toplevel):
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 
-        self._cancelled = False
+        self._cancel_event = threading.Event()
         self._start_time = None
 
         frame = ttk.Frame(self, padding=20)
@@ -172,11 +235,12 @@ class UploadDialog(tk.Toplevel):
         self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
 
     def _on_cancel(self):
-        self._cancelled = True
+        self._cancel_event.set()
+        self.destroy()
 
     @property
     def cancelled(self):
-        return self._cancelled
+        return self._cancel_event.is_set()
 
     def set_phase(self, text: str):
         self.label_file.config(text=text)
@@ -223,45 +287,60 @@ def do_upload_flow(parent: tk.Widget, oss_client: OSSClient, local_path: str,
 
     file_size = os.path.getsize(local_path)
     dlg = UploadDialog(parent, title="上传文件")
+    cancel_event = dlg._cancel_event
     result = {"url": None, "sha256": None, "error": None}
+
+    def _safe_after(func):
+        """Schedule *func* on the Tk main loop, silently skipping if the dialog is gone."""
+        try:
+            if not cancel_event.is_set():
+                dlg.after(0, func)
+        except tk.TclError:
+            pass
 
     def _worker():
         try:
-            # Phase 1: SHA256
-            dlg.after(0, lambda: dlg.set_phase(f"正在计算 SHA256: {Path(local_path).name}"))
+            _safe_after(lambda: dlg.set_phase(f"正在计算 SHA256: {Path(local_path).name}"))
 
             def sha_cb(sent, total):
-                if dlg.cancelled:
+                if cancel_event.is_set():
                     raise InterruptedError("用户取消")
-                dlg.after(0, lambda s=sent, t=total: dlg.update_progress(s, t))
+                _safe_after(lambda s=sent, t=total: dlg.update_progress(s, t))
 
             sha = sha256_file(local_path, sha_cb)
             result["sha256"] = sha
 
-            if dlg.cancelled:
+            if cancel_event.is_set():
                 return
 
-            # Phase 2: Upload
-            dlg.after(0, lambda: dlg.set_phase(f"正在上传: {Path(local_path).name}"))
+            _safe_after(lambda: dlg.set_phase(f"正在上传: {Path(local_path).name}"))
 
             def oss_cb(sent, total):
-                if dlg.cancelled:
+                if cancel_event.is_set():
                     raise InterruptedError("用户取消")
-                dlg.after(0, lambda s=sent, t=total: dlg.update_progress(s, t))
+                _safe_after(lambda s=sent, t=total: dlg.update_progress(s, t))
 
             oss_client.upload(oss_key, local_path, oss_cb)
             result["url"] = oss_client.get_public_url(oss_key)
         except InterruptedError:
             pass
         except Exception as e:
-            result["error"] = str(e)
+            if not cancel_event.is_set():
+                result["error"] = str(e)
         finally:
-            dlg.after(0, dlg.destroy)
+            try:
+                dlg.after(0, dlg.destroy)
+            except tk.TclError:
+                pass
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
     parent.wait_window(dlg)
-    t.join(timeout=1)
+
+    if cancel_event.is_set():
+        return None
+
+    t.join(timeout=2)
 
     if result["error"]:
         messagebox.showerror("上传失败", result["error"], parent=parent)
@@ -315,6 +394,7 @@ class ImagePublisher(ttk.Frame):
         btn_row = ttk.Frame(left)
         btn_row.pack(fill=tk.X, pady=(4, 0))
         ttk.Button(btn_row, text="新建镜像", command=self._new_image).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(btn_row, text="复制选中", command=self._duplicate_image).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(btn_row, text="删除选中", command=self._delete_image).pack(side=tk.LEFT)
 
         # Right panel - edit form
@@ -510,6 +590,15 @@ class ImagePublisher(ttk.Frame):
             fv["sha256"].set("")
             fv["size"].set("")
 
+    def _duplicate_image(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("提示", "请先选中一个镜像", parent=self)
+            return
+        self.tree.selection_remove(*sel)
+        self.var_id.set(self.var_id.get() + "-copy")
+        self.var_updated_at.set(date.today().isoformat())
+
     def _save_current(self):
         img = self._collect_form()
         if not img["id"] or not img["version"]:
@@ -687,6 +776,7 @@ class ReleasePublisher(ttk.Frame):
         self.var_mac_sha = tk.StringVar()
         self.var_mac_size = tk.StringVar()
         self.var_mac_minos = tk.StringVar(value="macOS 14.0")
+        self.var_mac_ed_signature = tk.StringVar()
 
         ttk.Label(f, text="latest_version:").grid(row=row, column=0, sticky=tk.E, padx=(0, 4), pady=2)
         ttk.Entry(f, textvariable=self.var_mac_version, width=30).grid(row=row, column=1, sticky=tk.W, pady=2)
@@ -719,6 +809,10 @@ class ReleasePublisher(ttk.Frame):
 
         ttk.Label(f, text="min_os:").grid(row=row, column=0, sticky=tk.E, padx=(0, 4), pady=2)
         ttk.Entry(f, textvariable=self.var_mac_minos, width=30).grid(row=row, column=1, sticky=tk.W, pady=2)
+        row += 1
+
+        ttk.Label(f, text="Sparkle edSignature:").grid(row=row, column=0, sticky=tk.E, padx=(0, 4), pady=2)
+        ttk.Entry(f, textvariable=self.var_mac_ed_signature, width=55).grid(row=row, column=1, columnspan=2, sticky=tk.W + tk.E, pady=2)
         row += 1
 
         f.columnconfigure(1, weight=1)
@@ -766,6 +860,23 @@ class ReleasePublisher(ttk.Frame):
         self.var_mac_sha.set(mac.get("sha256", ""))
         self.var_mac_size.set(str(mac.get("size", "")))
         self.var_mac_minos.set(mac.get("min_os", "macOS 14.0"))
+
+        self._load_ed_signature_from_appcast()
+
+    def _load_ed_signature_from_appcast(self):
+        """Try to read the current edSignature from appcast.xml."""
+        self.var_mac_ed_signature.set("")
+        if not APPCAST_XML_PATH.exists():
+            return
+        try:
+            tree = ET.parse(APPCAST_XML_PATH)
+            ns = {"sparkle": SPARKLE_NS}
+            enc = tree.find(".//item/enclosure")
+            if enc is not None:
+                sig = enc.get(f"{{{SPARKLE_NS}}}edSignature", "")
+                self.var_mac_ed_signature.set(sig)
+        except Exception:
+            pass
 
     @staticmethod
     def _parse_size(s: str) -> int:
@@ -818,9 +929,25 @@ class ReleasePublisher(ttk.Frame):
                 json.dumps(data, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
-            messagebox.showinfo("成功", f"已保存到:\n{VERSION_JSON_PATH}", parent=self)
         except Exception as e:
             messagebox.showerror("保存失败", str(e), parent=self)
+            return
+
+        saved_files = [str(VERSION_JSON_PATH)]
+
+        mac = platforms.get("macos", {})
+        if mac.get("latest_version"):
+            mac_info = dict(mac)
+            mac_info["ed_signature"] = self.var_mac_ed_signature.get().strip()
+            try:
+                APPCAST_XML_PATH.write_text(
+                    generate_appcast_xml(mac_info), encoding="utf-8",
+                )
+                saved_files.append(str(APPCAST_XML_PATH))
+            except Exception as e:
+                messagebox.showwarning("提示", f"version.json 已保存，但 appcast.xml 生成失败:\n{e}", parent=self)
+
+        messagebox.showinfo("成功", f"已保存到:\n" + "\n".join(saved_files), parent=self)
 
     def _upload_installer(self, target: str):
         if target == "macos":

@@ -3,7 +3,9 @@
 #
 # This script builds:
 #   1. tenbox-vm-runtime (C++ via CMake)
-#   2. TenBox.app (Swift/Obj-C++ manager — currently requires Xcode)
+#   2. TenBoxManager (Swift/Obj-C++ via SPM)
+#   3. Assembles TenBox.app bundle
+#   4. Signs and optionally creates DMG
 #
 # Usage:
 #   ./build-macos.sh [--release|--debug]
@@ -16,8 +18,14 @@ BUILD_TYPE="${1:---release}"
 CPU_COUNT=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 case "$BUILD_TYPE" in
-    --release) CMAKE_BUILD_TYPE="Release" ;;
-    --debug)   CMAKE_BUILD_TYPE="Debug" ;;
+    --release)
+        CMAKE_BUILD_TYPE="Release"
+        SWIFT_CONFIG="release"
+        ;;
+    --debug)
+        CMAKE_BUILD_TYPE="Debug"
+        SWIFT_CONFIG="debug"
+        ;;
     *)
         echo "Usage: $0 [--release|--debug]"
         exit 1
@@ -30,20 +38,24 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
+BUILD_DIR="$ROOT_DIR/build"
+MANAGER_SRC="$ROOT_DIR/src/manager-macos"
+APP_DIR="$BUILD_DIR/TenBox.app"
+PLIST="$MANAGER_SRC/Resources/Info.plist"
+ENTITLEMENTS="$MANAGER_SRC/Resources/TenBox.entitlements"
+
 echo "===================================="
 echo " TenBox macOS Build v$VERSION ($CMAKE_BUILD_TYPE)"
 echo "===================================="
 echo ""
 
 # Stamp the version into Info.plist before building
-PLIST="$ROOT_DIR/src/manager-macos/Resources/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 echo "Version $VERSION written to Info.plist"
 echo ""
 
-# Step 1: Build the C++ runtime via CMake
-echo "[1/2] Building tenbox-vm-runtime..."
-BUILD_DIR="$ROOT_DIR/build"
+# ── Step 1: Build tenbox-vm-runtime (C++ via CMake) ─────────────────────────
+echo "[1/3] Building tenbox-vm-runtime..."
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
@@ -59,24 +71,122 @@ if [ ! -f "$BUILD_DIR/tenbox-vm-runtime" ]; then
 fi
 echo "  -> $BUILD_DIR/tenbox-vm-runtime"
 
-# Step 2: Build the macOS manager
+codesign --force --sign - --entitlements "$ENTITLEMENTS" "$BUILD_DIR/tenbox-vm-runtime"
+echo "  -> codesign applied (ad-hoc + Hypervisor entitlement)"
+
+# ── Step 2: Build TenBoxManager (Swift/Obj-C++ via SPM) ─────────────────────
 echo ""
-echo "[2/2] Building TenBox Manager (SwiftUI)..."
+echo "[2/3] Building TenBoxManager via SPM ($SWIFT_CONFIG)..."
+
+cd "$MANAGER_SRC"
+swift build -c "$SWIFT_CONFIG"
+
+SWIFT_BUILD_DIR="$MANAGER_SRC/.build/$SWIFT_CONFIG"
+if [ ! -f "$SWIFT_BUILD_DIR/TenBoxManager" ]; then
+    echo "Error: TenBoxManager binary not found at $SWIFT_BUILD_DIR/TenBoxManager"
+    exit 1
+fi
+echo "  -> $SWIFT_BUILD_DIR/TenBoxManager"
+
+# ── Step 3: Assemble TenBox.app bundle ──────────────────────────────────────
 echo ""
-echo "The macOS Manager GUI requires Xcode to build."
-echo "Please open the following in Xcode:"
+echo "[3/3] Assembling TenBox.app..."
+
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR/Contents/MacOS"
+mkdir -p "$APP_DIR/Contents/Resources"
+
+# Copy Info.plist
+cp "$PLIST" "$APP_DIR/Contents/Info.plist"
+
+# Copy executables
+cp "$SWIFT_BUILD_DIR/TenBoxManager" "$APP_DIR/Contents/MacOS/TenBoxManager"
+cp "$BUILD_DIR/tenbox-vm-runtime" "$APP_DIR/Contents/MacOS/tenbox-vm-runtime"
+
+# Copy SPM resource bundles (icon, etc.)
+BUNDLE_PATH=$(find "$SWIFT_BUILD_DIR" -name "TenBoxManager_TenBoxManager.bundle" -type d 2>/dev/null | head -1)
+if [ -n "$BUNDLE_PATH" ] && [ -d "$BUNDLE_PATH" ]; then
+    cp -R "$BUNDLE_PATH" "$APP_DIR/Contents/Resources/"
+    echo "  -> Copied resource bundle"
+fi
+
+# Copy icon
+if [ -f "$MANAGER_SRC/Resources/icon.png" ]; then
+    cp "$MANAGER_SRC/Resources/icon.png" "$APP_DIR/Contents/Resources/"
+fi
+
+# Compile Metal shaders if present
+METAL_SRC="$MANAGER_SRC/Resources/Shaders.metal"
+if [ -f "$METAL_SRC" ]; then
+    echo "  -> Compiling Metal shaders..."
+    if xcrun metal -c "$METAL_SRC" -o "$BUILD_DIR/Shaders.air" 2>/dev/null && \
+       xcrun metallib "$BUILD_DIR/Shaders.air" -o "$APP_DIR/Contents/Resources/default.metallib" 2>/dev/null; then
+        rm -f "$BUILD_DIR/Shaders.air"
+    else
+        rm -f "$BUILD_DIR/Shaders.air"
+        echo "  -> WARNING: Metal shader compilation failed, copying .metal source as fallback"
+        echo "     To install Metal toolchain: xcodebuild -downloadComponent MetalToolchain"
+        cp "$METAL_SRC" "$APP_DIR/Contents/Resources/"
+    fi
+fi
+
+# Copy Sparkle framework from SPM build artifacts
+SPARKLE_FRAMEWORK=$(find "$MANAGER_SRC/.build/artifacts" -name "Sparkle.framework" -type d 2>/dev/null | head -1)
+if [ -n "$SPARKLE_FRAMEWORK" ] && [ -d "$SPARKLE_FRAMEWORK" ]; then
+    mkdir -p "$APP_DIR/Contents/Frameworks"
+    cp -R "$SPARKLE_FRAMEWORK" "$APP_DIR/Contents/Frameworks/"
+    echo "  -> Copied Sparkle.framework"
+fi
+
+# Sign the app bundle
+echo "  -> Signing TenBox.app..."
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID"; then
+    IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID" | head -1 | awk -F'"' '{print $2}')
+    echo "     Using: $IDENTITY"
+    codesign --deep --force --options runtime \
+        --entitlements "$ENTITLEMENTS" \
+        --sign "$IDENTITY" "$APP_DIR"
+else
+    echo "     Using: ad-hoc (no Developer ID found)"
+    codesign --deep --force --options runtime \
+        --entitlements "$ENTITLEMENTS" \
+        --sign - "$APP_DIR"
+fi
+
 echo ""
-echo "  $ROOT_DIR/src/manager-macos/"
+echo "  -> $APP_DIR"
+
+# ── Step 4: Create ZIP for Sparkle updates + EdDSA signature ────────────────
 echo ""
-echo "Or build from command line if an Xcode project exists:"
-echo "  xcodebuild -project TenBox.xcodeproj -scheme TenBox -configuration $CMAKE_BUILD_TYPE"
-echo ""
-echo "After building the Manager, copy tenbox-vm-runtime into the app bundle:"
-echo "  cp $BUILD_DIR/tenbox-vm-runtime TenBox.app/Contents/MacOS/"
-echo ""
-echo "Then create the DMG:"
-echo "  $SCRIPT_DIR/make-dmg.sh TenBox.app"
+ZIP_PATH="$BUILD_DIR/TenBox_$VERSION.zip"
+echo "Creating Sparkle update ZIP..."
+ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
+echo "  -> $ZIP_PATH"
+
+SIGN_TOOL=$(find "$MANAGER_SRC/.build/artifacts" -name "sign_update" -type f 2>/dev/null | head -1)
+if [ -n "$SIGN_TOOL" ] && [ -x "$SIGN_TOOL" ]; then
+    echo ""
+    echo "Signing ZIP with Sparkle EdDSA key..."
+    ED_SIGNATURE=$("$SIGN_TOOL" "$ZIP_PATH" 2>&1) || true
+    echo "$ED_SIGNATURE"
+    echo ""
+    echo "Copy the sparkle:edSignature value above into publish.py when releasing."
+else
+    echo ""
+    echo "WARNING: Sparkle sign_update tool not found."
+    echo "  Run 'swift build' once in src/manager-macos to fetch Sparkle artifacts,"
+    echo "  then sign manually: sign_update $ZIP_PATH"
+fi
+
 echo ""
 echo "===================================="
-echo " Runtime build complete."
+echo " Build complete!"
 echo "===================================="
+echo ""
+echo "Artifacts:"
+echo "  App:  $APP_DIR"
+echo "  ZIP:  $ZIP_PATH"
+echo ""
+echo "To create a DMG for distribution:"
+echo "  $SCRIPT_DIR/make-dmg.sh $APP_DIR"
+echo ""

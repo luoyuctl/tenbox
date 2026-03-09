@@ -18,7 +18,6 @@ bool SharedFramebuffer::Create(const std::string& name, uint32_t width, uint32_t
     size_t bytes = static_cast<size_t>(width) * height * 4;
     if (bytes == 0) return false;
 
-    // First unlink any stale segment with the same name (ignore errors).
     shm_unlink(name.c_str());
 
     int fd = shm_open(name.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
@@ -92,15 +91,15 @@ void SharedFramebuffer::Close() {
 }
 
 std::string GetSharedFramebufferName(const std::string& vm_id) {
-    // macOS shm_open has PSHMNAMLEN=31 (30 usable chars including '/').
-    // UUID is 36 chars with hyphens; strip hyphens to get 32 hex chars,
-    // then take the first 26 to fit: "/tb_" (4) + 26 = 30.
+    // macOS shm_open has PSHMNAMLEN=31 (30 usable chars after leading '/').
+    // The caller appends "_<generation>" (up to 4 chars), so the base name
+    // must be at most 26 chars: "/" (1) + "tb_" (3) + 22 hex = 26.
     std::string compact;
     compact.reserve(32);
     for (char c : vm_id) {
         if (c != '-') compact += c;
     }
-    return "/tb_" + compact.substr(0, 26);
+    return "/tb_" + compact.substr(0, 22);
 }
 
 }  // namespace ipc

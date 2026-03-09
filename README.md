@@ -50,20 +50,20 @@ Use the Docker wrapper to build images (requires Docker):
 # x86_64 images
 ./scripts/docker/build.sh x86_64 kernel
 ./scripts/docker/build.sh x86_64 initramfs
-./scripts/docker/build.sh x86_64 rootfs
+./scripts/docker/build.sh x86_64 rootfs-chromium
 
 # arm64 images (for macOS Apple Silicon)
 ./scripts/docker/build.sh arm64 kernel
 ./scripts/docker/build.sh arm64 initramfs
-./scripts/docker/build.sh arm64 rootfs
+./scripts/docker/build.sh arm64 rootfs-chromium
 ```
 
 The rootfs script supports incremental builds with a checkpoint system. If interrupted, re-run the same command to resume:
 
 ```bash
-./scripts/docker/build.sh x86_64 rootfs --status       # Show build progress
-./scripts/docker/build.sh x86_64 rootfs --list-steps   # List all build steps
-./scripts/docker/build.sh x86_64 rootfs --force        # Force full rebuild
+./scripts/docker/build.sh x86_64 rootfs-chromium --status       # Show build progress
+./scripts/docker/build.sh x86_64 rootfs-chromium --list-steps   # List all build steps
+./scripts/docker/build.sh x86_64 rootfs-chromium --force        # Force full rebuild
 ```
 
 ### Run
@@ -160,7 +160,7 @@ When NAT is enabled, TenBox provides a user-mode network:
 - **ICMP** — relayed via raw socket (requires admin for ping)
 - **Port forwarding** — configurable per VM; e.g., host port 2222 → guest port 22
 
-### Guest Defaults (built by `make-rootfs-base.sh`)
+### Guest Defaults (built by `make-rootfs-chromium.sh`)
 
 | Setting | Default | Override |
 |---|---|---|

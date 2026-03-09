@@ -1,16 +1,47 @@
 import SwiftUI
 import AppKit
+import Sparkle
 
 let kTenBoxVersion: String = {
     Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
 }()
 let kTenBoxCopyright = "Copyright \u{00A9} 2026 terrence@tenclass.com"
 
+final class CheckForUpdatesViewModel: ObservableObject {
+    @Published var canCheckForUpdates = false
+
+    init(updater: SPUUpdater) {
+        updater.publisher(for: \.canCheckForUpdates)
+            .assign(to: &$canCheckForUpdates)
+    }
+}
+
+struct CheckForUpdatesView: View {
+    @ObservedObject private var viewModel: CheckForUpdatesViewModel
+    private let updater: SPUUpdater
+
+    init(updater: SPUUpdater) {
+        self.updater = updater
+        self.viewModel = CheckForUpdatesViewModel(updater: updater)
+    }
+
+    var body: some View {
+        Button("Check for Updates...", action: updater.checkForUpdates)
+            .disabled(!viewModel.canCheckForUpdates)
+    }
+}
+
 @main
 struct TenBoxApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    private let updaterController: SPUStandardUpdaterController
 
     init() {
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         NSApplication.shared.applicationIconImage = Self.makeAppIcon()
@@ -57,6 +88,8 @@ struct TenBoxApp: App {
                 Button("About TenBox") {
                     Self.showAboutPanel()
                 }
+                Divider()
+                CheckForUpdatesView(updater: updaterController.updater)
             }
             CommandGroup(replacing: .newItem) {
                 Button("New VM...") {

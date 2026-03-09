@@ -5,16 +5,16 @@
 #   ./scripts/docker/build.sh <arch> <target> [extra-args...]
 #
 # arch:   arm64 | x86_64
-# target: rootfs | rootfs-copaw | rootfs-openclaw | initramfs | kernel
+# target: rootfs-chromium | rootfs-copaw | rootfs-openclaw | initramfs | kernel
 #
 # Examples:
-#   ./scripts/docker/build.sh arm64 rootfs
-#   ./scripts/docker/build.sh arm64 rootfs --force
-#   ./scripts/docker/build.sh arm64 rootfs --list-steps
+#   ./scripts/docker/build.sh arm64 rootfs-chromium
+#   ./scripts/docker/build.sh arm64 rootfs-chromium --force
+#   ./scripts/docker/build.sh arm64 rootfs-chromium --list-steps
 #   ./scripts/docker/build.sh arm64 initramfs
 #   ./scripts/docker/build.sh arm64 kernel
-#   ./scripts/docker/build.sh x86_64 rootfs
-#   ./scripts/docker/build.sh x86_64 rootfs --force
+#   ./scripts/docker/build.sh x86_64 rootfs-chromium
+#   ./scripts/docker/build.sh x86_64 rootfs-chromium --force
 #   ./scripts/docker/build.sh x86_64 rootfs-copaw
 #   ./scripts/docker/build.sh x86_64 rootfs-openclaw
 #   ./scripts/docker/build.sh x86_64 initramfs
@@ -31,17 +31,17 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 IMAGE_NAME="tenbox-builder"
 
 ARCH="${1:?Usage: $0 <arch> <target> [extra-args...]  (arch: arm64|x86_64)}"
-TARGET="${2:?Usage: $0 <arch> <target> [extra-args...]  (target: rootfs|initramfs|kernel)}"
+TARGET="${2:?Usage: $0 <arch> <target> [extra-args...]  (target: rootfs-chromium|initramfs|kernel)}"
 shift 2
 
 resolve_script() {
     local arch="$1" target="$2"
     case "$target" in
-        rootfs)
+        rootfs-chromium)
             if [ "$arch" = "arm64" ]; then
-                echo "scripts/arm64/make-rootfs-base.sh"
+                echo "scripts/arm64/make-rootfs-chromium.sh"
             else
-                echo "scripts/x86_64/make-rootfs-base.sh"
+                echo "scripts/x86_64/make-rootfs-chromium.sh"
             fi
             ;;
         rootfs-copaw)
@@ -68,7 +68,7 @@ resolve_script() {
             echo "scripts/${arch}/build-virtio-snd.sh"
             ;;
         *)
-            echo "Error: unknown target '$target' (use: rootfs, rootfs-copaw, rootfs-openclaw, initramfs, kernel, virtio-snd)" >&2
+            echo "Error: unknown target '$target' (use: rootfs-chromium, rootfs-copaw, rootfs-openclaw, initramfs, kernel, virtio-snd)" >&2
             exit 1
             ;;
     esac
