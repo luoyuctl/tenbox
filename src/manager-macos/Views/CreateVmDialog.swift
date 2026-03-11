@@ -377,25 +377,28 @@ class CreateVmViewModel: ObservableObject {
         isLoadingSources = true
         errorMessage = ""
 
-        Task {
-            do {
-                let fetched = try await service.fetchSources()
-                sources = fetched
-                if !fetched.isEmpty && selectedSourceIndex < 0 {
-                    selectedSourceIndex = 0
-                    fetchOnlineImages()
+        let fetched = service.effectiveSources()
+        sources = fetched
+        if !fetched.isEmpty && selectedSourceIndex < 0 {
+            var defaultIndex = 0
+            if let last = service.lastSelectedSource {
+                if let idx = fetched.firstIndex(where: { $0.name == last }) {
+                    defaultIndex = idx
                 }
-            } catch {
-                errorMessage = "Failed to load sources: \(error.localizedDescription)"
             }
-            isLoadingSources = false
+            selectedSourceIndex = defaultIndex
+            fetchOnlineImages()
         }
+        isLoadingSources = false
     }
 
     func onSourceChanged() {
         onlineImages = []
         selectedImageId = nil
         errorMessage = ""
+        if selectedSourceIndex >= 0, selectedSourceIndex < sources.count {
+            service.lastSelectedSource = sources[selectedSourceIndex].name
+        }
         fetchOnlineImages()
     }
 
