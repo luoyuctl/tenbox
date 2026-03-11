@@ -110,6 +110,9 @@ class VmSession: ObservableObject {
                 if self.ipcClient.attach(fd: fd) {
                     self.connected = true
                     self.audioPlayer.start()
+                    if !self.displayInitialized {
+                        self.activeTab = 1
+                    }
                 }
                 self.connecting = false
             }
