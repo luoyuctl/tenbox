@@ -499,8 +499,59 @@ void NetBackend::ProcessPendingTx() {
             }
         }
 
-        // Packets to gateway: feed directly to lwIP
+        // Packets to gateway: route TCP/UDP to host's 127.0.0.1
         if (dst == kGatewayIp) {
+            constexpr uint32_t kHostLoopback = 0x7F000001; // 127.0.0.1
+            uint32_t ip_hdr_len_gw = (ip->ver_ihl & 0xF) * 4;
+
+            if (ip->proto == IPPROTO_TCP &&
+                frame.size() >= sizeof(EthHdr) + ip_hdr_len_gw + sizeof(TcpHdr)) {
+                auto* tcp = reinterpret_cast<TcpHdr*>(
+                    frame.data() + sizeof(EthHdr) + ip_hdr_len_gw);
+                auto* entry = FindNatEntry(
+                    ntohs(tcp->src_port), kHostLoopback, ntohs(tcp->dst_port), IPPROTO_TCP);
+                if (!entry) {
+                    entry = CreateNatEntry(
+                        ntohl(ip->src_ip), ntohs(tcp->src_port),
+                        kHostLoopback, ntohs(tcp->dst_port), IPPROTO_TCP);
+                    if (!entry) continue;
+                    entry->gateway_local = true;
+                }
+                RewriteAndFeed(frame.data(), static_cast<uint32_t>(frame.size()), entry);
+                continue;
+            }
+
+            if (ip->proto == IPPROTO_UDP &&
+                frame.size() >= sizeof(EthHdr) + ip_hdr_len_gw + sizeof(UdpHdr)) {
+                auto* udp = reinterpret_cast<UdpHdr*>(
+                    frame.data() + sizeof(EthHdr) + ip_hdr_len_gw);
+                uint16_t g_sport = ntohs(udp->src_port);
+                uint16_t g_dport = ntohs(udp->dst_port);
+                uint32_t udp_off = sizeof(EthHdr) + ip_hdr_len_gw + sizeof(UdpHdr);
+                uint32_t payload_len = static_cast<uint32_t>(frame.size()) - udp_off;
+
+                auto* entry = FindNatEntry(g_sport, kHostLoopback, g_dport, IPPROTO_UDP);
+                if (!entry) {
+                    entry = CreateNatEntry(
+                        ntohl(ip->src_ip), g_sport, kHostLoopback, g_dport, IPPROTO_UDP);
+                    if (!entry) continue;
+                    entry->gateway_local = true;
+                }
+                if (entry->host_socket != static_cast<uintptr_t>(SOCK_INVALID) && payload_len > 0) {
+                    struct sockaddr_in dest{};
+                    dest.sin_family = AF_INET;
+                    dest.sin_addr.s_addr = htonl(kHostLoopback);
+                    dest.sin_port = htons(g_dport);
+                    sendto(static_cast<SocketHandle>(entry->host_socket),
+                           SOCK_CCAST(frame.data() + udp_off),
+                           static_cast<int>(payload_len), 0,
+                           reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
+                    entry->last_active_ms = GetMonotonicMs();
+                }
+                continue;
+            }
+
+            // Non-TCP/UDP packets to gateway (e.g. ICMP): feed to lwIP as before
             struct pbuf* p = pbuf_alloc(PBUF_RAW, static_cast<u16_t>(frame.size()), PBUF_RAM);
             if (p) {
                 pbuf_take(p, frame.data(), static_cast<u16_t>(frame.size()));

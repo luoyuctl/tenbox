@@ -73,7 +73,7 @@ private struct SelectImagePage: View {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: []) {
                     if !vm.cachedImages.isEmpty {
                         Section {
-                            ForEach(vm.cachedImages) { img in
+                            ForEach(vm.cachedImages, id: \.cacheId) { img in
                                 let tag = img.cacheId + "||cached"
                                 SelectableImageRow(image: img, isCached: true, isSelected: vm.selectedImageId == tag) {
                                     vm.selectedImageId = tag
@@ -98,7 +98,7 @@ private struct SelectImagePage: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
                         }
-                        ForEach(vm.filteredOnlineImages) { img in
+                        ForEach(vm.filteredOnlineImages, id: \.cacheId) { img in
                             let tag = img.cacheId + "||online"
                             SelectableImageRow(image: img, isCached: false, isSelected: vm.selectedImageId == tag) {
                                 vm.selectedImageId = tag
