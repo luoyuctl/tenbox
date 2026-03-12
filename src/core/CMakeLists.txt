@@ -59,6 +59,7 @@ target_include_directories(tenbox_core
         ${LWIP_INCLUDE_DIRS}
 )
 if(APPLE)
+    add_dependencies(tenbox_core lwipcore)
     target_link_libraries(tenbox_core
         PUBLIC
             zlibstatic
