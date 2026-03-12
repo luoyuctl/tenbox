@@ -448,7 +448,9 @@ bool Vm::SetupVirtioSnd(const VirtioDeviceSlot& slot) {
 }
 
 void Vm::VCpuThreadFunc(uint32_t vcpu_index) {
+#if defined(__APPLE__) && defined(__x86_64__)
     LocalApic::SetCurrentCpu(vcpu_index);
+#endif
 #ifdef __APPLE__
     // macOS HVF: create vCPU on this thread (required by Hypervisor.framework)
     auto created = hv_vm_->CreateVCpu(vcpu_index, &addr_space_);

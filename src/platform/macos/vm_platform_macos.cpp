@@ -4,6 +4,7 @@
 
 #ifdef __aarch64__
 #include "platform/macos/hypervisor/aarch64/hvf_vm.h"
+#include "platform/macos/hypervisor/aarch64/hvf_vcpu.h"
 #else
 #include "platform/macos/hypervisor/x86_64/hvf_vm.h"
 #endif
@@ -18,7 +19,13 @@ bool VmPlatform::IsHypervisorPresent() {
 }
 
 std::unique_ptr<HypervisorVm> VmPlatform::CreateHypervisor(uint32_t cpu_count) {
-    return hvf::HvfVm::Create(cpu_count);
+    auto vm = hvf::HvfVm::Create(cpu_count);
+#ifdef __aarch64__
+    if (vm) {
+        hvf::HvfVCpu::EnableExitStats(false);
+    }
+#endif
+    return vm;
 }
 
 uint8_t* VmPlatform::AllocateRam(uint64_t size) {
