@@ -78,6 +78,7 @@ private struct SelectImagePage: View {
                                 SelectableImageRow(image: img, isCached: true, isSelected: vm.selectedImageId == tag) {
                                     vm.selectedImageId = tag
                                 }
+                                .id(tag)
                             }
                         } header: {
                             Text("Cached")
@@ -103,6 +104,7 @@ private struct SelectImagePage: View {
                             SelectableImageRow(image: img, isCached: false, isSelected: vm.selectedImageId == tag) {
                                 vm.selectedImageId = tag
                             }
+                            .id(tag)
                         }
                     } header: {
                         Text("Online")
