@@ -1,0 +1,86 @@
+name: Build Rootfs
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Build target"
+        required: true
+        type: choice
+        options:
+          - rootfs-chromium
+          - rootfs-copaw
+          - rootfs-openclaw
+        default: rootfs-chromium
+      arch:
+        description: "Architectures to build"
+        required: true
+        type: choice
+        options:
+          - both
+          - x86_64
+          - arm64
+        default: both
+
+jobs:
+  build-x86_64:
+    if: inputs.arch == 'both' || inputs.arch == 'x86_64'
+    runs-on: ubuntu-latest
+    name: "${{ inputs.target }} (x86_64)"
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      - name: Show disk space
+        run: df -h
+
+      - name: Build
+        run: ./scripts/docker/build.sh x86_64 ${{ inputs.target }}
+
+      - name: List outputs
+        run: |
+          echo "=== build/share/ ==="
+          ls -lh build/share/ 2>/dev/null || echo "(empty)"
+          echo "=== All qcow2 files ==="
+          find build/ -name '*.qcow2' -exec ls -lh {} \; 2>/dev/null || echo "(none)"
+
+  build-arm64:
+    if: inputs.arch == 'both' || inputs.arch == 'arm64'
+    runs-on: ubuntu-24.04-arm
+    name: "${{ inputs.target }} (arm64)"
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      - name: Show disk space
+        run: df -h
+
+      - name: Build
+        run: ./scripts/docker/build.sh arm64 ${{ inputs.target }}
+
+      - name: List outputs
+        run: |
+          echo "=== build/share/ ==="
+          ls -lh build/share/ 2>/dev/null || echo "(empty)"
+          echo "=== All qcow2 files ==="
+          find build/ -name '*.qcow2' -exec ls -lh {} \; 2>/dev/null || echo "(none)"
