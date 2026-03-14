@@ -32,7 +32,8 @@ less,vim,bash-completion,\
 openssh-client,gnupg,apt-transport-https,\
 lsof,strace,sysstat,\
 kmod,pciutils,usbutils,\
-coreutils,findutils,grep,gawk,sed,tar,gzip,bzip2,xz-utils"
+coreutils,findutils,grep,gawk,sed,tar,gzip,bzip2,xz-utils,\
+linux-image-amd64,iptables"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$(mkdir -p "$SCRIPT_DIR/../../build" && cd "$SCRIPT_DIR/../../build" && pwd)"

@@ -16,12 +16,12 @@
       "min_os": "Windows 10"
     },
     "macos": {
-      "latest_version": "0.4.6",
-      "release_notes": "修复TenBoxManager内存泄漏的bug",
-      "release_date": "2026-03-14",
-      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox-0.4.6.dmg",
-      "sha256": "96d3895b8c2f6198da58b9218e18d28aaf822f461bcd121c2d6b6dad18dcc7a0",
-      "size": 4247156,
+      "latest_version": "0.4.7",
+      "release_notes": "修复磁盘线程初始化顺序bug",
+      "release_date": "2026-03-15",
+      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox-0.4.7.dmg",
+      "sha256": "385267231957ef23af37bd12a332244321bab3ba8669065192967168f405b9a3",
+      "size": 4239104,
       "min_os": "macOS 12"
     }
   }
