@@ -91,7 +91,7 @@ static UINT GetWindowDpi(HWND hwnd) {
     return dpi ? dpi : 96;
 }
 
-static constexpr int kDefaultLeftPaneWidth96 = 280;
+static constexpr int kDefaultLeftPaneWidth96 = 200;
 
 // ── Forward declarations for dialog helpers ──
 
