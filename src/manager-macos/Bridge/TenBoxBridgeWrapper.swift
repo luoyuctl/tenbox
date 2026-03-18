@@ -31,7 +31,8 @@ class TenBoxBridgeWrapper {
                 sharedFolders: folders,
                 portForwards: pfs,
                 guestForwards: gfs,
-                displayScale: max(1, min(2, Int(info.displayScale)))
+                displayScale: max(1, min(2, Int(info.displayScale))),
+                debugMode: info.debugMode
             )
         }
     }
@@ -46,11 +47,12 @@ class TenBoxBridgeWrapper {
         objcConfig.cpuCount = config.cpuCount
         objcConfig.netEnabled = config.netEnabled
         objcConfig.sourceDir = config.sourceDir
+        objcConfig.debugMode = config.debugMode
         bridge.createVm(with: objcConfig)
     }
 
-    func editVm(id: String, name: String, memoryMb: Int, cpuCount: Int, netEnabled: Bool) {
-        bridge.editVm(withId: id, name: name, memoryMb: memoryMb, cpuCount: cpuCount, netEnabled: netEnabled)
+    func editVm(id: String, name: String, memoryMb: Int, cpuCount: Int, netEnabled: Bool, debugMode: Bool) {
+        bridge.editVm(withId: id, name: name, memoryMb: memoryMb, cpuCount: cpuCount, netEnabled: netEnabled, debugMode: debugMode)
     }
 
     func deleteVm(id: String) {
