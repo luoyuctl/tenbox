@@ -1382,7 +1382,7 @@ Win32UiShell::Win32UiShell(ManagerService& manager)
         reinterpret_cast<HMENU>(IDC_TAB), hinst, nullptr);
     SendMessage(impl_->tab, WM_SETFONT,
         reinterpret_cast<WPARAM>(impl_->ui_font), FALSE);
-    SendMessage(impl_->tab, TCM_SETPADDING, 0, MAKELPARAM(impl_->Dpi(24), impl_->Dpi(8)));
+    SendMessage(impl_->tab, TCM_SETPADDING, 0, MAKELPARAM(impl_->Dpi(16), impl_->Dpi(4)));
     {
         std::wstring wtab_info = i18n::tr_w(i18n::S::kTabInfo);
         std::wstring wtab_console = i18n::tr_w(i18n::S::kTabConsole);

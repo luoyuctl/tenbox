@@ -327,6 +327,17 @@ bool ManagerService::DeleteVm(const std::string& vm_id, std::string* error) {
         StopVm(vm_id, &stop_err);
     }
 
+    // StopVmLoop must be called outside vms_mutex_ because the loop thread
+    // callbacks may acquire vms_mutex_ (deadlock otherwise).
+    VmRecord* vmp_for_loop = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(vms_mutex_);
+        vmp_for_loop = FindVm(vm_id);
+    }
+    if (vmp_for_loop) {
+        StopVmLoop(*vmp_for_loop);
+    }
+
     {
         std::lock_guard<std::mutex> lock(vms_mutex_);
         VmRecord* vm = FindVm(vm_id);
@@ -335,6 +346,7 @@ bool ManagerService::DeleteVm(const std::string& vm_id, std::string* error) {
             return false;
         }
 
+        CleanupRuntimeHandles(*vm);
         vm_dir = vm->spec.vm_dir;
         EraseVm(vm_id);
     }

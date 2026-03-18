@@ -564,8 +564,8 @@ static LRESULT CALLBACK DlgSubclassProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp
 
         // Throttle repaint frequency to reduce progress bar/text flicker.
         if (!file_changed && !done) {
-            if (!percent_changed && elapsed < 150) return 0;
-            if (percent_changed && elapsed < 90) return 0;
+            if (!percent_changed && elapsed < 1000) return 0;
+            if (percent_changed && elapsed < 500) return 0;
         }
 
         if (file_changed) {
@@ -1170,7 +1170,7 @@ bool ShowCreateVmDialog2(HWND parent, ManagerService& mgr, std::string* error) {
 
     CreateWindowExW(0, L"STATIC", L"",
         WS_CHILD | SS_LEFT,
-        margin, margin + scale_px(92), w - 2 * margin, scale_px(48),
+        margin, margin + scale_px(92), w - 2 * margin, scale_px(64),
         dlg, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(IDC_PROGRESS_TEXT)), nullptr, nullptr);
 
     auto layout = CalcSliderRowLayout(w, margin, btn_h, scale_px);

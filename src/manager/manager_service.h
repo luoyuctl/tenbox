@@ -60,6 +60,11 @@ struct VmRuntimeHandle {
     ipc::Message recv_pending_msg;
 
     VmRuntimeHandle() = default;
+    ~VmRuntimeHandle() {
+        if (loop_thread.joinable()) {
+            loop_thread.join();
+        }
+    }
     VmRuntimeHandle(const VmRuntimeHandle& o)
         : process_handle(o.process_handle),
           process_id(o.process_id),
