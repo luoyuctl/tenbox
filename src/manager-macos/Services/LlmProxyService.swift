@@ -253,6 +253,7 @@ final class LlmProxyService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 300
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if !mapping.apiKey.isEmpty {
             request.setValue("Bearer \(mapping.apiKey)", forHTTPHeaderField: "Authorization")
@@ -286,7 +287,9 @@ final class LlmProxyService {
         delegate.readNextRequest = { [weak self] in
             self?.readRequest(conn)
         }
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
         delegate.session = session
         let task = session.dataTask(with: request)
         task.resume()
@@ -337,6 +340,7 @@ private class StreamingDelegate: NSObject, URLSessionDataDelegate {
     weak var session: URLSession?
     private var headerSent = false
     private var completed = false
+    private var failed = false
     private var pendingChunks: [Data] = []
     private var isSending = false
 
@@ -376,7 +380,13 @@ private class StreamingDelegate: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         proxyQueue.async { [self] in
-            if headerSent {
+            if let error = error {
+                // Upstream failed (timeout, network error, etc.).
+                // Do NOT send the chunked terminator — just close the connection.
+                // The client won't receive data: [DONE], matching OpenAI's own behavior.
+                NSLog("[llm-proxy] SSE upstream error: %@", error.localizedDescription)
+                failed = true
+            } else if headerSent {
                 pendingChunks.append(Data("0\r\n\r\n".utf8))
             }
             completed = true
@@ -410,7 +420,9 @@ private class StreamingDelegate: NSObject, URLSessionDataDelegate {
 
     private func finish() {
         session?.invalidateAndCancel()
-        if keepAlive {
+        if failed {
+            connection.cancel()
+        } else if keepAlive {
             readNextRequest?()
         } else {
             connection.cancel()

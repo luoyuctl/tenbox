@@ -1,18 +1,18 @@
 {
-  "latest_version": "0.5.0",
+  "latest_version": "0.5.1",
   "min_supported_version": "0.1.0",
-  "release_notes": "默认禁用10.0.2.2转发，需要用户配置\n增加LLM代理工具，保障API Key安全\nVM在运行时，防止系统进入睡眠\n更新升级组件",
+  "release_notes": "配置LLM代理超时时间为5分钟",
   "release_date": "2026-03-17",
-  "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.0.msi",
-  "sha256": "9152e88a91b8c94d8741fbdf204408c431af2a453d799b40eac222b02afbafa0",
+  "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.1.msi",
+  "sha256": "c7daededcdb6d4a95789ba0b62ec4e4a6bd3381fedcc7f5a7585cc945678e5e7",
   "platforms": {
     "windows": {
-      "latest_version": "0.5.0",
-      "release_notes": "默认禁用10.0.2.2转发，需要用户配置\n增加LLM代理工具，保障API Key安全\nVM在运行时，防止系统进入睡眠\n更新升级组件",
+      "latest_version": "0.5.1",
+      "release_notes": "配置LLM代理超时时间为5分钟",
       "release_date": "2026-03-17",
-      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.0.msi",
-      "sha256": "9152e88a91b8c94d8741fbdf204408c431af2a453d799b40eac222b02afbafa0",
-      "size": 3219456,
+      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.1.msi",
+      "sha256": "c7daededcdb6d4a95789ba0b62ec4e4a6bd3381fedcc7f5a7585cc945678e5e7",
+      "size": 3223552,
       "min_os": "Windows 10"
     },
     "macos": {

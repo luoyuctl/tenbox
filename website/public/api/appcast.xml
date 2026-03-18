@@ -6,24 +6,21 @@
     <description>TenBox Updates</description>
     <language>zh-CN</language>
     <item>
-      <title>Version 0.5.0</title>
+      <title>Version 0.5.1</title>
       <description><![CDATA[
         <ul>
-          <li>默认禁用10.0.2.2转发，需要用户配置</li>
-          <li>增加LLM代理工具，保障API Key安全</li>
-          <li>VM在运行时，防止系统进入睡眠</li>
-          <li>更新升级组件</li>
+          <li>配置LLM代理超时时间为5分钟</li>
         </ul>
       ]]></description>
       <pubDate>Tue, 17 Mar 2026 00:00:00 -0000</pubDate>
       <sparkle:minimumSystemVersion>10</sparkle:minimumSystemVersion>
       <enclosure
-        url="https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.0.msi"
+        url="https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.1.msi"
         sparkle:os="windows"
-        sparkle:version="0.5.0"
-        sparkle:shortVersionString="0.5.0"
+        sparkle:version="0.5.1"
+        sparkle:shortVersionString="0.5.1"
         sparkle:installerArguments="/passive"
-        length="3219456"
+        length="3223552"
         type="application/octet-stream"
       />
     </item>

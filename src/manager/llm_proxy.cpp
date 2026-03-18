@@ -445,6 +445,12 @@ bool LlmProxyService::ForwardToUpstream(uintptr_t client_sock,
         return false;
     }
 
+    // Set explicit WinHTTP timeouts. Default receive timeout (30s) is too short for SSE streams.
+    if (!WinHttpSetTimeouts(session, 15000, 60000, 30000, 300000)) {
+        DWORD err = GetLastError();
+        LOG_ERROR("WinHttpSetTimeouts failed: %lu", err);
+    }
+
     // Enable HTTP/1.1 keep-alive (default in WinHTTP)
     HINTERNET conn = WinHttpConnect(session, parts.host.c_str(), parts.port, 0);
     if (!conn) {
@@ -535,7 +541,8 @@ bool LlmProxyService::ForwardToUpstream(uintptr_t client_sock,
             std::string sse_raw;
             char buf[kReadBufSize];
             DWORD bytes_read = 0;
-            while (WinHttpReadData(req, buf, sizeof(buf), &bytes_read) && bytes_read > 0) {
+            BOOL read_result = TRUE;
+            while ((read_result = WinHttpReadData(req, buf, kReadBufSize, &bytes_read)) && bytes_read > 0) {
                 sse_raw.append(buf, bytes_read);
                 std::string chunk_header = ToHex(bytes_read) + "\r\n";
                 if (!SendStr(client, chunk_header)) break;
@@ -543,7 +550,21 @@ bool LlmProxyService::ForwardToUpstream(uintptr_t client_sock,
                 if (!SendStr(client, "\r\n")) break;
                 bytes_read = 0;
             }
-            SendStr(client, "0\r\n\r\n");
+            DWORD last_err = read_result ? 0 : GetLastError();
+
+            if (read_result) {
+                // Normal end: upstream closed the connection after sending data: [DONE].
+                // Send chunked terminator so the client sees a clean HTTP response.
+                SendStr(client, "0\r\n\r\n");
+            } else {
+                // Abnormal end (timeout, network error, etc.).
+                // Do NOT send the chunked terminator — just close the socket.
+                // This mimics OpenAI's own behavior: the client won't receive
+                // data: [DONE], so it can detect the stream was interrupted.
+                LOG_ERROR("SSE upstream read failed: WinHTTP error %lu", last_err);
+                keep_alive = false;
+                shutdown(client, SD_SEND);
+            }
             out_response_body = std::move(sse_raw);
         }
     } else {
@@ -551,7 +572,7 @@ bool LlmProxyService::ForwardToUpstream(uintptr_t client_sock,
         std::vector<char> response_body;
         char buf[kReadBufSize];
         DWORD bytes_read = 0;
-        while (WinHttpReadData(req, buf, sizeof(buf), &bytes_read) && bytes_read > 0) {
+        while (WinHttpReadData(req, buf, kReadBufSize, &bytes_read) && bytes_read > 0) {
             response_body.insert(response_body.end(), buf, buf + bytes_read);
             bytes_read = 0;
         }
@@ -657,7 +678,7 @@ void LlmProxyService::OpenLogFile() {
 
     current_log_date_ = TodayDateStr();
     auto path = (fs::path(log_dir_) / ("llm_" + current_log_date_ + ".jsonl")).string();
-    log_file_ = fopen(path.c_str(), "ab");
+    fopen_s(&log_file_, path.c_str(), "ab");
 }
 
 void LlmProxyService::CloseLogFile() {
@@ -682,7 +703,7 @@ void LlmProxyService::WriteLogEntry(const std::string& request_body,
         fclose(log_file_);
         current_log_date_ = today;
         auto path = (fs::path(log_dir_) / ("llm_" + today + ".jsonl")).string();
-        log_file_ = fopen(path.c_str(), "ab");
+        fopen_s(&log_file_, path.c_str(), "ab");
         if (!log_file_) return;
     }
 
