@@ -14,7 +14,7 @@
         {
           "name": "vmlinuz",
           "url": "https://files.xiaozhi.me/tenbox/images/openclaw/vmlinuz",
-          "sha256": "e1750f8aeb7ffd4df016fc5fa50a45a587778924b4bd8f22c4497cc9101270ab",
+          "sha256": "",
           "size": 8206272
         },
         {
@@ -26,7 +26,7 @@
         {
           "name": "rootfs.qcow2",
           "url": "https://files.xiaozhi.me/tenbox/images/openclaw/rootfs-openclaw-2026.3.13-x86_64.qcow2",
-          "sha256": "8286858013a7dce1c21fd3ab87856423c33cebaa1ee454a1abde84daafceb57f",
+          "sha256": "",
           "size": 1673880576
         }
       ]
@@ -45,7 +45,7 @@
         {
           "name": "vmlinuz",
           "url": "https://files.xiaozhi.me/tenbox/images/copaw/vmlinuz",
-          "sha256": "e1750f8aeb7ffd4df016fc5fa50a45a587778924b4bd8f22c4497cc9101270ab",
+          "sha256": "",
           "size": 8206272
         },
         {
@@ -57,7 +57,7 @@
         {
           "name": "rootfs.qcow2",
           "url": "https://files.xiaozhi.me/tenbox/images/copaw/rootfs-copaw-0.1.0-x86_64.qcow2",
-          "sha256": "8ea80f937ba2e625f126829a697853835a0b77ee8ae6b7d2169aaba9a52238b5",
+          "sha256": "",
           "size": 1581052928
         }
       ]
@@ -76,7 +76,7 @@
         {
           "name": "vmlinuz",
           "url": "https://files.xiaozhi.me/tenbox/images/chromium/vmlinuz",
-          "sha256": "e1750f8aeb7ffd4df016fc5fa50a45a587778924b4bd8f22c4497cc9101270ab",
+          "sha256": "",
           "size": 8206272
         },
         {
@@ -107,7 +107,7 @@
         {
           "name": "vmlinuz",
           "url": "https://files.xiaozhi.me/tenbox/images/chromium-arm64/Image-arm64",
-          "sha256": "cc767b98c8f14ad16c761cd3f3bc8a5e033d0e416d48dc958e0d6af0bd14feb8",
+          "sha256": "",
           "size": 32888768
         },
         {
@@ -138,7 +138,7 @@
         {
           "name": "vmlinuz",
           "url": "https://files.xiaozhi.me/tenbox/images/copaw-arm64/Image-arm64",
-          "sha256": "cc767b98c8f14ad16c761cd3f3bc8a5e033d0e416d48dc958e0d6af0bd14feb8",
+          "sha256": "",
           "size": 32888768
         },
         {
@@ -150,7 +150,7 @@
         {
           "name": "rootfs.qcow2",
           "url": "https://files.xiaozhi.me/tenbox/images/copaw-arm64/rootfs-copaw-0.1.0-arm64.qcow2",
-          "sha256": "ee76c3a8b8fc6be94e118a7a8147bbb07ccced9603acdf08b14d876617970d0d",
+          "sha256": "",
           "size": 1598076928
         }
       ]
@@ -169,7 +169,7 @@
         {
           "name": "vmlinuz",
           "url": "https://files.xiaozhi.me/tenbox/images/openclaw-arm64/Image-arm64",
-          "sha256": "cc767b98c8f14ad16c761cd3f3bc8a5e033d0e416d48dc958e0d6af0bd14feb8",
+          "sha256": "",
           "size": 32888768
         },
         {
@@ -181,7 +181,7 @@
         {
           "name": "rootfs.qcow2",
           "url": "https://files.xiaozhi.me/tenbox/images/openclaw-arm64/rootfs-openclaw-2026.3.13-arm64.qcow2",
-          "sha256": "25b7c608bb2b1fedc141d7b140bf751d169f78a2e786a2c7e73057da9efa5d96",
+          "sha256": "",
           "size": 1645318144
         }
       ]

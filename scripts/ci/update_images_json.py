@@ -2,6 +2,11 @@
 
 Usage (called by CI after build jobs finish):
     python3 scripts/ci/update_images_json.py --target <target> --meta-dir <dir>
+    python3 scripts/ci/update_images_json.py ... --enable-sha256  # optional: fill sha256 from meta
+
+By default sha256 is written as "" so clients skip verification. That avoids a race where OSS
+objects are updated before images.json is merged (users would otherwise download GBs then fail
+SHA checks). Pass --enable-sha256 when you want checksums in the manifest.
 
 Supported targets:
     rootfs-chromium, rootfs-copaw, rootfs-openclaw  — updates rootfs.qcow2 for a specific image
@@ -74,11 +79,13 @@ def extract_version(filename: str, target: str, arch: str) -> str:
     return ""
 
 
-def update_rootfs_entry(images: list[dict], target: str, meta: dict) -> str | None:
+def update_rootfs_entry(
+    images: list[dict], target: str, meta: dict, *, use_sha256: bool
+) -> str | None:
     arch = meta["arch"]
     image_id = get_image_id(target, arch)
     filename = meta["filename"]
-    sha256 = meta["sha256"]
+    sha256 = meta["sha256"] if use_sha256 else ""
     size = meta["size"]
     version = extract_version(filename, target, arch)
 
@@ -118,10 +125,10 @@ def update_rootfs_entry(images: list[dict], target: str, meta: dict) -> str | No
     return version or None
 
 
-def update_initramfs_entries(images: list[dict], meta: dict) -> int:
+def update_initramfs_entries(images: list[dict], meta: dict, *, use_sha256: bool) -> int:
     arch = meta["arch"]
     filename = meta["filename"]
-    sha256 = meta["sha256"]
+    sha256 = meta["sha256"] if use_sha256 else ""
     size = meta["size"]
     platform = PLATFORM_MAP.get(arch, arch)
 
@@ -150,6 +157,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", required=True, help="Build target (e.g. rootfs-copaw, initramfs)")
     parser.add_argument("--meta-dir", required=True, help="Directory containing per-arch JSON metadata files")
+    parser.add_argument(
+        "--enable-sha256",
+        action="store_true",
+        help="Write sha256 from build metadata (default: write empty string, skip client verification)",
+    )
     args = parser.parse_args()
 
     meta_dir = Path(args.meta_dir)
@@ -161,14 +173,15 @@ def main():
     data = json.loads(IMAGES_JSON_PATH.read_text(encoding="utf-8"))
     images = data.get("images", [])
 
-    print(f"Updating images.json for {args.target}:")
+    use_sha256 = args.enable_sha256
+    print(f"Updating images.json for {args.target} (sha256={'from meta' if use_sha256 else 'empty'}):")
     versions = set()
     for meta_file in meta_files:
         meta = json.loads(meta_file.read_text())
         if args.target == "initramfs":
-            update_initramfs_entries(images, meta)
+            update_initramfs_entries(images, meta, use_sha256=use_sha256)
         else:
-            ver = update_rootfs_entry(images, args.target, meta)
+            ver = update_rootfs_entry(images, args.target, meta, use_sha256=use_sha256)
             if ver:
                 versions.add(ver)
 

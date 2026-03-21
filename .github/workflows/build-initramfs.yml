@@ -174,6 +174,8 @@ jobs:
       - name: List metadata
         run: ls -la /tmp/meta/ && cat /tmp/meta/*.json
 
+      # Default: sha256 left empty so clients skip verification (OSS can update before PR merges).
+      # Add --enable-sha256 to the script call if you want checksums in the manifest.
       - name: Update images.json
         env:
           OSS_PUBLIC_URL: https://files.xiaozhi.me
