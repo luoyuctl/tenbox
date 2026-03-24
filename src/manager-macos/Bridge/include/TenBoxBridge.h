@@ -5,93 +5,36 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface TBPortForward : NSObject
-@property (nonatomic, assign) uint16_t hostPort;
-@property (nonatomic, assign) uint16_t guestPort;
-@property (nonatomic, copy) NSString *hostIp;
-@property (nonatomic, copy) NSString *guestIp;
-@end
+@interface TBIpcServer : NSObject
 
-@interface TBGuestForward : NSObject
-@property (nonatomic, copy) NSString *guestIp;
-@property (nonatomic, assign) uint16_t guestPort;
-@property (nonatomic, copy) NSString *hostAddr;
-@property (nonatomic, assign) uint16_t hostPort;
-@end
+// Create an IPC socket server for a VM and start a background accept thread.
+- (BOOL)listenForVm:(NSString *)vmId socketPath:(NSString *)path;
 
-@interface TBSharedFolder : NSObject
-@property (nonatomic, copy) NSString *tag;
-@property (nonatomic, copy) NSString *hostPath;
-@property (nonatomic, assign) BOOL readonly_;
-@property (nonatomic, copy, nullable) NSData *bookmark;
-@end
+// Check if a VM has an active IPC server (for stale state detection).
+- (BOOL)isServerActiveForVm:(NSString *)vmId;
 
-@interface TBVmInfo : NSObject
-@property (nonatomic, copy) NSString *vmId;
-@property (nonatomic, copy) NSString *name;
-@property (nonatomic, copy) NSString *kernelPath;
-@property (nonatomic, copy) NSString *initrdPath;
-@property (nonatomic, copy) NSString *diskPath;
-@property (nonatomic, assign) NSInteger memoryMb;
-@property (nonatomic, assign) NSInteger cpuCount;
-@property (nonatomic, copy) NSString *state;
-@property (nonatomic, assign) BOOL netEnabled;
-@property (nonatomic, copy) NSArray<TBSharedFolder *> *sharedFolders;
-@property (nonatomic, copy) NSArray<TBPortForward *> *portForwards;
-@property (nonatomic, copy) NSArray<TBGuestForward *> *guestForwards;
-@property (nonatomic, assign) NSInteger displayScale;
-@property (nonatomic, assign) BOOL debugMode;
-@end
+// Get the IPC socket path for a VM.
++ (NSString *)socketPathForVm:(NSString *)vmId;
 
-@interface TBVmCreateConfig : NSObject
-@property (nonatomic, copy) NSString *name;
-@property (nonatomic, copy) NSString *kernelPath;
-@property (nonatomic, copy) NSString *initrdPath;
-@property (nonatomic, copy) NSString *diskPath;
-@property (nonatomic, assign) NSInteger memoryMb;
-@property (nonatomic, assign) NSInteger cpuCount;
-@property (nonatomic, assign) BOOL netEnabled;
-@property (nonatomic, copy) NSString *sourceDir;
-@property (nonatomic, assign) BOOL debugMode;
-@end
+// Send a control command (stop/shutdown/reboot) to a running VM.
+- (BOOL)sendControlCommand:(NSString *)command toVm:(NSString *)vmId;
 
-@interface TBBridge : NSObject
-
-- (NSArray<TBVmInfo *> *)getVmList;
-- (BOOL)createVmWithConfig:(TBVmCreateConfig *)config;
-- (BOOL)editVmWithId:(NSString *)vmId name:(NSString *)name memoryMb:(NSInteger)memoryMb cpuCount:(NSInteger)cpuCount netEnabled:(BOOL)netEnabled debugMode:(BOOL)debugMode;
-- (BOOL)deleteVmWithId:(NSString *)vmId;
-- (BOOL)startVmWithId:(NSString *)vmId;
-- (BOOL)stopVmWithId:(NSString *)vmId;
-- (void)rebootVmWithId:(NSString *)vmId;
-- (void)shutdownVmWithId:(NSString *)vmId;
-
-// Shared folder management
-- (BOOL)addSharedFolder:(TBSharedFolder *)folder toVm:(NSString *)vmId;
-- (BOOL)removeSharedFolderWithTag:(NSString *)tag fromVm:(NSString *)vmId;
-- (BOOL)setSharedFolders:(NSArray<TBSharedFolder *> *)folders forVm:(NSString *)vmId;
-
-// Display scale management
-- (BOOL)setDisplayScale:(NSInteger)scale forVm:(NSString *)vmId;
-
-// Port forward management
-- (BOOL)addPortForward:(TBPortForward *)pf toVm:(NSString *)vmId;
-- (BOOL)removePortForwardWithHostPort:(uint16_t)hostPort fromVm:(NSString *)vmId;
-- (NSArray<TBPortForward *> *)getPortForwards:(NSString *)vmId;
-
-// Guest forward management
-- (BOOL)addGuestForward:(TBGuestForward *)gf toVm:(NSString *)vmId;
-- (BOOL)removeGuestForwardWithGuestIp:(NSString *)guestIp guestPort:(uint16_t)guestPort fromVm:(NSString *)vmId;
-
-// Terminate all running VM processes. Call on app exit.
-- (void)stopAllVms;
+// Send a shared-folders hot-update to a running VM.
+// Each entry: "tag|host_path|readonly(0/1)"
+- (BOOL)sendSharedFoldersUpdate:(NSArray<NSString *> *)entries toVm:(NSString *)vmId;
 
 // Wait for the runtime process to connect (up to timeout seconds).
-- (BOOL)waitForRuntimeConnection:(NSString *)vmId timeout:(NSTimeInterval)timeout;
+- (BOOL)waitForConnection:(NSString *)vmId timeout:(NSTimeInterval)timeout;
 
 // Take the accepted socket fd for a VM. Returns -1 if not available.
 // Ownership is transferred; caller must close the fd.
 - (int)takeAcceptedFdForVm:(NSString *)vmId;
+
+// Close IPC resources (socket server, accepted connection, accept thread) for a single VM.
+- (void)closeResourcesForVm:(NSString *)vmId;
+
+// Close all IPC resources. Call on app exit.
+- (void)closeAllResources;
 
 @end
 

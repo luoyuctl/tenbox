@@ -117,6 +117,205 @@ struct VmCreateConfig {
     let debugMode: Bool
 }
 
+// MARK: - Disk Config Models (config.json persistence)
+
+struct SharedFolderConfig: Codable, Equatable {
+    var tag: String
+    var hostPath: String
+    var readonly: Bool
+    var bookmarkBase64: String?
+
+    enum CodingKeys: String, CodingKey {
+        case tag
+        case hostPath = "host_path"
+        case readonly
+        case bookmarkBase64 = "bookmark_base64"
+    }
+
+    init(tag: String, hostPath: String, readonly: Bool, bookmarkBase64: String? = nil) {
+        self.tag = tag
+        self.hostPath = hostPath
+        self.readonly = readonly
+        self.bookmarkBase64 = bookmarkBase64
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tag = try c.decodeIfPresent(String.self, forKey: .tag) ?? ""
+        hostPath = try c.decodeIfPresent(String.self, forKey: .hostPath) ?? ""
+        readonly = try c.decodeIfPresent(Bool.self, forKey: .readonly) ?? false
+        bookmarkBase64 = try c.decodeIfPresent(String.self, forKey: .bookmarkBase64)
+    }
+
+    func toSharedFolder() -> SharedFolder {
+        let bookmark = bookmarkBase64.flatMap { Data(base64Encoded: $0) }
+        return SharedFolder(tag: tag, hostPath: hostPath, readonly: readonly, bookmark: bookmark)
+    }
+
+    static func from(_ folder: SharedFolder) -> SharedFolderConfig {
+        SharedFolderConfig(
+            tag: folder.tag,
+            hostPath: folder.hostPath,
+            readonly: folder.readonly,
+            bookmarkBase64: folder.bookmark?.base64EncodedString()
+        )
+    }
+}
+
+struct PortForwardConfig: Codable, Equatable {
+    var hostPort: UInt16
+    var guestPort: UInt16
+    var hostIp: String?
+    var guestIp: String?
+    var lan: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case hostPort = "host_port"
+        case guestPort = "guest_port"
+        case hostIp = "host_ip"
+        case guestIp = "guest_ip"
+        case lan
+    }
+
+    func toPortForward() -> PortForward {
+        let resolvedHostIp: String
+        if let hip = hostIp {
+            resolvedHostIp = hip
+        } else if lan == true {
+            resolvedHostIp = "0.0.0.0"
+        } else {
+            resolvedHostIp = "127.0.0.1"
+        }
+        return PortForward(hostPort: hostPort, guestPort: guestPort,
+                           hostIp: resolvedHostIp, guestIp: guestIp ?? "")
+    }
+
+    static func from(_ pf: PortForward) -> PortForwardConfig {
+        var cfg = PortForwardConfig(hostPort: pf.hostPort, guestPort: pf.guestPort)
+        if !pf.hostIp.isEmpty && pf.hostIp != "127.0.0.1" {
+            cfg.hostIp = pf.hostIp
+        }
+        if !pf.guestIp.isEmpty {
+            cfg.guestIp = pf.guestIp
+        }
+        return cfg
+    }
+}
+
+struct GuestForwardConfig: Codable, Equatable {
+    var guestIp: String
+    var guestPort: UInt16
+    var hostPort: UInt16
+    var hostAddr: String?
+
+    enum CodingKeys: String, CodingKey {
+        case guestIp = "guest_ip"
+        case guestPort = "guest_port"
+        case hostPort = "host_port"
+        case hostAddr = "host_addr"
+    }
+
+    func toGuestForward() -> GuestForward {
+        GuestForward(guestIp: guestIp, guestPort: guestPort,
+                     hostAddr: hostAddr ?? "127.0.0.1", hostPort: hostPort)
+    }
+
+    static func from(_ gf: GuestForward) -> GuestForwardConfig {
+        var cfg = GuestForwardConfig(guestIp: gf.guestIp, guestPort: gf.guestPort, hostPort: gf.hostPort)
+        if !gf.hostAddr.isEmpty && gf.hostAddr != "127.0.0.1" {
+            cfg.hostAddr = gf.hostAddr
+        }
+        return cfg
+    }
+}
+
+struct VmConfig: Codable {
+    var name: String
+    var kernelPath: String
+    var initrdPath: String
+    var diskPath: String
+    var memoryMb: Int
+    var cpuCount: Int
+    var state: String
+    var netEnabled: Bool
+    var debugMode: Bool
+    var displayScale: Int
+    var sharedFolders: [SharedFolderConfig]
+    var portForwards: [PortForwardConfig]
+    var guestForwards: [GuestForwardConfig]
+
+    enum CodingKeys: String, CodingKey {
+        case name, state
+        case kernelPath = "kernel_path"
+        case initrdPath = "initrd_path"
+        case diskPath = "disk_path"
+        case memoryMb = "memory_mb"
+        case cpuCount = "cpu_count"
+        case netEnabled = "net_enabled"
+        case debugMode = "debug_mode"
+        case displayScale = "display_scale"
+        case sharedFolders = "shared_folders"
+        case portForwards = "port_forwards"
+        case guestForwards = "guest_forwards"
+    }
+
+    init(name: String = "", kernelPath: String = "", initrdPath: String = "",
+         diskPath: String = "", memoryMb: Int = 512, cpuCount: Int = 2,
+         state: String = "stopped", netEnabled: Bool = false, debugMode: Bool = false,
+         displayScale: Int = 1, sharedFolders: [SharedFolderConfig] = [],
+         portForwards: [PortForwardConfig] = [], guestForwards: [GuestForwardConfig] = []) {
+        self.name = name
+        self.kernelPath = kernelPath
+        self.initrdPath = initrdPath
+        self.diskPath = diskPath
+        self.memoryMb = memoryMb
+        self.cpuCount = cpuCount
+        self.state = state
+        self.netEnabled = netEnabled
+        self.debugMode = debugMode
+        self.displayScale = displayScale
+        self.sharedFolders = sharedFolders
+        self.portForwards = portForwards
+        self.guestForwards = guestForwards
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        kernelPath = try c.decodeIfPresent(String.self, forKey: .kernelPath) ?? ""
+        initrdPath = try c.decodeIfPresent(String.self, forKey: .initrdPath) ?? ""
+        diskPath = try c.decodeIfPresent(String.self, forKey: .diskPath) ?? ""
+        memoryMb = try c.decodeIfPresent(Int.self, forKey: .memoryMb) ?? 512
+        cpuCount = try c.decodeIfPresent(Int.self, forKey: .cpuCount) ?? 2
+        state = try c.decodeIfPresent(String.self, forKey: .state) ?? "stopped"
+        netEnabled = try c.decodeIfPresent(Bool.self, forKey: .netEnabled) ?? false
+        debugMode = try c.decodeIfPresent(Bool.self, forKey: .debugMode) ?? false
+        displayScale = try c.decodeIfPresent(Int.self, forKey: .displayScale) ?? 1
+        sharedFolders = try c.decodeIfPresent([SharedFolderConfig].self, forKey: .sharedFolders) ?? []
+        portForwards = try c.decodeIfPresent([PortForwardConfig].self, forKey: .portForwards) ?? []
+        guestForwards = try c.decodeIfPresent([GuestForwardConfig].self, forKey: .guestForwards) ?? []
+    }
+
+    func toVmInfo(id: String) -> VmInfo {
+        VmInfo(
+            id: id,
+            name: name,
+            kernelPath: kernelPath,
+            initrdPath: initrdPath,
+            diskPath: diskPath,
+            memoryMb: memoryMb,
+            cpuCount: cpuCount,
+            state: VmState(rawValue: state) ?? .stopped,
+            netEnabled: netEnabled,
+            sharedFolders: sharedFolders.compactMap { $0.tag.isEmpty ? nil : $0.toSharedFolder() },
+            portForwards: portForwards.map { $0.toPortForward() },
+            guestForwards: guestForwards.map { $0.toGuestForward() },
+            displayScale: max(1, min(2, displayScale)),
+            debugMode: debugMode
+        )
+    }
+}
+
 // MARK: - Image Source Models
 
 struct ImageSource: Codable {

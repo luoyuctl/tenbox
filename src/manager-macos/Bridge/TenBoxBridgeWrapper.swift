@@ -2,144 +2,148 @@ import Foundation
 import TenBoxBridge
 
 class TenBoxBridgeWrapper {
-    private let bridge = TBBridge()
+    let configStore = VmConfigStore()
+    let ipcServer = TBIpcServer()
+    private(set) lazy var processManager = VmProcessManager(ipcServer: ipcServer, configStore: configStore)
 
     func getVmList() -> [VmInfo] {
-        let objcList = bridge.getVmList()
-        return objcList.map { info in
-            let folders = info.sharedFolders.map { sf in
-                SharedFolder(tag: sf.tag, hostPath: sf.hostPath, readonly: sf.readonly_, bookmark: sf.bookmark)
+        configStore.listVms().map { (id, config) in
+            var config = config
+            if config.state == "running" && !ipcServer.isServerActive(forVm: id) {
+                config.state = "stopped"
+                configStore.updateState(vmId: id, state: "stopped")
             }
-            let pfs = info.portForwards.map { pf in
-                PortForward(hostPort: pf.hostPort, guestPort: pf.guestPort,
-                            hostIp: pf.hostIp, guestIp: pf.guestIp)
-            }
-            let gfs = info.guestForwards.map { gf in
-                GuestForward(guestIp: gf.guestIp, guestPort: gf.guestPort,
-                             hostAddr: gf.hostAddr, hostPort: gf.hostPort)
-            }
-            return VmInfo(
-                id: info.vmId,
-                name: info.name,
-                kernelPath: info.kernelPath,
-                initrdPath: info.initrdPath,
-                diskPath: info.diskPath,
-                memoryMb: Int(info.memoryMb),
-                cpuCount: Int(info.cpuCount),
-                state: VmState(rawValue: info.state) ?? .stopped,
-                netEnabled: info.netEnabled,
-                sharedFolders: folders,
-                portForwards: pfs,
-                guestForwards: gfs,
-                displayScale: max(1, min(2, Int(info.displayScale))),
-                debugMode: info.debugMode
-            )
+            return config.toVmInfo(id: id)
         }
     }
 
     func createVm(config: VmCreateConfig) {
-        let objcConfig = TBVmCreateConfig()
-        objcConfig.name = config.name
-        objcConfig.kernelPath = config.kernelPath
-        objcConfig.initrdPath = config.initrdPath
-        objcConfig.diskPath = config.diskPath
-        objcConfig.memoryMb = config.memoryMb
-        objcConfig.cpuCount = config.cpuCount
-        objcConfig.netEnabled = config.netEnabled
-        objcConfig.sourceDir = config.sourceDir
-        objcConfig.debugMode = config.debugMode
-        bridge.createVm(with: objcConfig)
+        configStore.createVm(from: config)
     }
 
     func editVm(id: String, name: String, memoryMb: Int, cpuCount: Int, netEnabled: Bool, debugMode: Bool) {
-        bridge.editVm(withId: id, name: name, memoryMb: memoryMb, cpuCount: cpuCount, netEnabled: netEnabled, debugMode: debugMode)
+        configStore.editVm(id: id, name: name, memoryMb: memoryMb, cpuCount: cpuCount,
+                           netEnabled: netEnabled, debugMode: debugMode)
     }
 
     func deleteVm(id: String) {
-        bridge.deleteVm(withId: id)
+        configStore.deleteVm(id: id)
     }
 
     @discardableResult
     func startVm(id: String) -> Bool {
-        return bridge.startVm(withId: id)
+        guard let config = configStore.readConfig(vmId: id) else { return false }
+        let vmDir = configStore.vmDirectory(for: id)
+        let socketPath = TBIpcServer.socketPath(forVm: id)
+
+        guard ipcServer.listen(forVm: id, socketPath: socketPath) else { return false }
+
+        let success = processManager.launchRuntime(
+            vmId: id, config: config, vmDir: vmDir,
+            socketPath: socketPath) { [weak self] vmId in
+                guard let self = self else { return }
+                self.startVm(id: vmId)
+                NotificationCenter.default.post(
+                    name: Notification.Name("TenBoxVmStateChanged"),
+                    object: vmId)
+            }
+
+        guard success else {
+            ipcServer.closeResources(forVm: id)
+            return false
+        }
+
+        configStore.updateState(vmId: id, state: "running")
+        return true
     }
 
     func stopVm(id: String) {
-        bridge.stopVm(withId: id)
+        ipcServer.sendControlCommand("stop", toVm: id)
+        processManager.terminateProcess(vmId: id)
+        ipcServer.closeResources(forVm: id)
+        configStore.updateState(vmId: id, state: "stopped")
     }
 
     func rebootVm(id: String) {
-        bridge.rebootVm(withId: id)
+        ipcServer.sendControlCommand("reboot", toVm: id)
     }
 
     func shutdownVm(id: String) {
-        bridge.shutdownVm(withId: id)
+        ipcServer.sendControlCommand("shutdown", toVm: id)
     }
 
+    // MARK: - Shared Folders
+
     func addSharedFolder(_ folder: SharedFolder, toVm vmId: String) -> Bool {
-        let sf = TBSharedFolder()
-        sf.tag = folder.tag
-        sf.hostPath = folder.hostPath
-        sf.readonly_ = folder.readonly
-        sf.bookmark = folder.bookmark
-        return bridge.add(sf, toVm: vmId)
+        guard configStore.addSharedFolder(folder, toVm: vmId) else { return false }
+        sendSharedFoldersIpcUpdate(vmId: vmId)
+        return true
     }
 
     func removeSharedFolder(tag: String, fromVm vmId: String) -> Bool {
-        return bridge.removeSharedFolder(withTag: tag, fromVm: vmId)
+        guard configStore.removeSharedFolder(tag: tag, fromVm: vmId) else { return false }
+        sendSharedFoldersIpcUpdate(vmId: vmId)
+        return true
     }
 
     func setSharedFolders(_ folders: [SharedFolder], forVm vmId: String) -> Bool {
-        let objcFolders = folders.map { f -> TBSharedFolder in
-            let sf = TBSharedFolder()
-            sf.tag = f.tag
-            sf.hostPath = f.hostPath
-            sf.readonly_ = f.readonly
-            sf.bookmark = f.bookmark
-            return sf
-        }
-        return bridge.setSharedFolders(objcFolders, forVm: vmId)
+        guard configStore.setSharedFolders(folders, forVm: vmId) else { return false }
+        sendSharedFoldersIpcUpdate(vmId: vmId)
+        return true
     }
 
+    private func sendSharedFoldersIpcUpdate(vmId: String) {
+        guard let config = configStore.readConfig(vmId: vmId) else { return }
+        let entries = config.sharedFolders.map { sf in
+            "\(sf.tag)|\(sf.hostPath)|\(sf.readonly ? "1" : "0")"
+        }
+        ipcServer.sendSharedFoldersUpdate(entries, toVm: vmId)
+    }
+
+    // MARK: - Port Forwards
+
     func addPortForward(_ pf: PortForward, toVm vmId: String) -> Bool {
-        let objcPf = TBPortForward()
-        objcPf.hostPort = pf.hostPort
-        objcPf.guestPort = pf.guestPort
-        objcPf.hostIp = pf.hostIp
-        objcPf.guestIp = pf.guestIp
-        return bridge.add(objcPf, toVm: vmId)
+        configStore.addPortForward(pf, toVm: vmId)
     }
 
     func removePortForward(hostPort: UInt16, fromVm vmId: String) -> Bool {
-        return bridge.removePortForward(withHostPort: hostPort, fromVm: vmId)
+        configStore.removePortForward(hostPort: hostPort, fromVm: vmId)
     }
 
+    // MARK: - Guest Forwards
+
     func addGuestForward(_ gf: GuestForward, toVm vmId: String) -> Bool {
-        let objcGf = TBGuestForward()
-        objcGf.guestIp = gf.guestIp
-        objcGf.guestPort = gf.guestPort
-        objcGf.hostAddr = gf.hostAddr
-        objcGf.hostPort = gf.hostPort
-        return bridge.add(objcGf, toVm: vmId)
+        configStore.addGuestForward(gf, toVm: vmId)
     }
 
     func removeGuestForward(guestIp: String, guestPort: UInt16, fromVm vmId: String) -> Bool {
-        return bridge.removeGuestForward(withGuestIp: guestIp, guestPort: guestPort, fromVm: vmId)
+        configStore.removeGuestForward(guestIp: guestIp, guestPort: guestPort, fromVm: vmId)
     }
+
+    // MARK: - Display Scale
 
     func setDisplayScale(_ scale: Int, forVm vmId: String) -> Bool {
-        return bridge.setDisplayScale(scale, forVm: vmId)
+        configStore.setDisplayScale(vmId: vmId, scale: scale)
     }
+
+    // MARK: - Stop All
 
     func stopAllVms() {
-        bridge.stopAllVms()
+        let runningIds = processManager.runningVmIds()
+        for vmId in runningIds {
+            ipcServer.sendControlCommand("stop", toVm: vmId)
+        }
+        processManager.terminateAll()
+        ipcServer.closeAllResources()
     }
 
+    // MARK: - IPC Connection
+
     func waitForRuntimeConnection(vmId: String, timeout: TimeInterval = 30) -> Bool {
-        return bridge.wait(forRuntimeConnection: vmId, timeout: timeout)
+        ipcServer.wait(forConnection: vmId, timeout: timeout)
     }
 
     func takeAcceptedFd(vmId: String) -> Int32 {
-        return bridge.takeAcceptedFd(forVm: vmId)
+        ipcServer.takeAcceptedFd(forVm: vmId)
     }
 }
