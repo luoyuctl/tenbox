@@ -31,9 +31,11 @@ def get_oss_dir(target: str, arch: str) -> str:
         rootfs-chromium + arm64  -> chromium-arm64
         initramfs + x86_64       -> initramfs
         initramfs + arm64        -> initramfs-arm64
+        kernel + x86_64          -> kernel
+        kernel + arm64           -> kernel-arm64
     """
-    if target == "initramfs":
-        name = "initramfs"
+    if target in ("initramfs", "kernel"):
+        name = target
     else:
         name = target.removeprefix("rootfs-")
     if arch == "arm64":

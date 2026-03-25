@@ -11,6 +11,7 @@ SHA checks). Pass --enable-sha256 when you want checksums in the manifest.
 Supported targets:
     rootfs-chromium, rootfs-copaw, rootfs-openclaw  — updates rootfs.qcow2 for a specific image
     initramfs                                       — updates initrd.gz for ALL images of matching platform
+    kernel                                          — updates vmlinuz for ALL images of matching platform
 
 The meta-dir contains JSON files (one per arch) with:
     { "arch": "x86_64", "filename": "...", "sha256": "...", "size": 123456 }
@@ -52,8 +53,8 @@ def get_image_id(target: str, arch: str) -> str:
 
 def get_oss_dir(target: str, arch: str) -> str:
     """Derive the OSS directory name."""
-    if target == "initramfs":
-        name = "initramfs"
+    if target in ("initramfs", "kernel"):
+        name = target
         if arch == "arm64":
             name += "-arm64"
         return name
@@ -125,6 +126,35 @@ def update_rootfs_entry(
     return version or None
 
 
+def update_kernel_entries(images: list[dict], meta: dict, *, use_sha256: bool) -> int:
+    """Update vmlinuz for ALL images matching the platform."""
+    arch = meta["arch"]
+    filename = meta["filename"]
+    sha256 = meta["sha256"] if use_sha256 else ""
+    size = meta["size"]
+    platform = PLATFORM_MAP.get(arch, arch)
+
+    images_dir = os.environ.get("OSS_TENBOX_IMAGES_DIR", "tenbox/images").strip("/")
+    public_url = os.environ.get("OSS_PUBLIC_URL", "").rstrip("/")
+    oss_dir = get_oss_dir("kernel", arch)
+    download_url = f"{public_url}/{images_dir}/{oss_dir}/{filename}"
+
+    updated = 0
+    for img in images:
+        if img.get("platform") != platform:
+            continue
+        for file_entry in img.get("files", []):
+            if file_entry["name"] == "vmlinuz":
+                file_entry["url"] = download_url
+                file_entry["sha256"] = sha256
+                file_entry["size"] = size
+                updated += 1
+                break
+
+    print(f"  {arch}: updated {updated} image(s) -> {download_url}")
+    return updated
+
+
 def update_initramfs_entries(images: list[dict], meta: dict, *, use_sha256: bool) -> int:
     arch = meta["arch"]
     filename = meta["filename"]
@@ -180,6 +210,8 @@ def main():
         meta = json.loads(meta_file.read_text())
         if args.target == "initramfs":
             update_initramfs_entries(images, meta, use_sha256=use_sha256)
+        elif args.target == "kernel":
+            update_kernel_entries(images, meta, use_sha256=use_sha256)
         else:
             ver = update_rootfs_entry(images, args.target, meta, use_sha256=use_sha256)
             if ver:
