@@ -1,18 +1,20 @@
 # Build environment for TenBox rootfs/initramfs/kernel images.
 # Native builds only — no cross-compilation. Use matching-arch runners.
 #
-# Includes a qemu-img built from source with zstd support.
+# Two build targets:
+#   base  — lightweight image for kernel/initramfs (no qemu-img)
+#   full  — adds qemu-img with zstd support for rootfs builds
 #
-# Usage (via build.sh wrapper):
+# Usage (via build.sh wrapper — selects the right target automatically):
 #   ./scripts/docker/build.sh arm64 rootfs-chromium
-#   ./scripts/docker/build.sh x86_64 rootfs-chromium
+#   ./scripts/docker/build.sh x86_64 initramfs
+#   ./scripts/docker/build.sh x86_64 kernel
 #
 # Or manually:
-#   docker build -t tenbox-builder scripts/docker/
-#   docker run --privileged -v $(pwd):/workspace tenbox-builder \
-#       /workspace/scripts/arm64/make-rootfs-chromium.sh
+#   docker build --target base -t tenbox-builder-base scripts/docker/
+#   docker build --target full -t tenbox-builder scripts/docker/
 
-# --- Stage 1: build qemu-img with zstd ---
+# --- Stage 1: build qemu-img with zstd (only pulled in by "full" target) ---
 FROM debian:trixie-slim AS qemu-build
 
 ARG QEMU_VERSION=9.2.2
@@ -36,10 +38,8 @@ RUN curl -fSL "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz" \
     && make -j"$(nproc)" qemu-img \
     && strip build/qemu-img
 
-# --- Stage 2: runtime ---
-FROM debian:trixie-slim
-
-COPY --from=qemu-build /tmp/qemu-src/build/qemu-img /usr/local/bin/qemu-img
+# --- Stage 2: base runtime (kernel / initramfs) ---
+FROM debian:trixie-slim AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     debootstrap \
@@ -54,12 +54,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     coreutils \
     binutils \
     sudo \
-    libglib2.0-0t64 libzstd1 libpixman-1-0 \
     build-essential bc kmod file \
     flex bison libelf-dev libssl-dev dwarves \
     && rm -rf /var/lib/apt/lists/*
 
-RUN qemu-img --version
-
 WORKDIR /workspace
 ENTRYPOINT ["/bin/bash"]
+
+# --- Stage 3: full runtime (rootfs — adds qemu-img) ---
+FROM base AS full
+
+COPY --from=qemu-build /tmp/qemu-src/build/qemu-img /usr/local/bin/qemu-img
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0t64 libzstd1 libpixman-1-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && qemu-img --version

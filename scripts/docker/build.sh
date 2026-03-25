@@ -28,11 +28,25 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-IMAGE_NAME="tenbox-builder"
 
 ARCH="${1:?Usage: $0 <arch> <target> [extra-args...]  (arch: arm64|x86_64)}"
 TARGET="${2:?Usage: $0 <arch> <target> [extra-args...]  (target: rootfs-chromium|initramfs|kernel)}"
 shift 2
+
+needs_qemu_img() {
+    case "$1" in
+        rootfs-*) return 0 ;;
+        *)        return 1 ;;
+    esac
+}
+
+if needs_qemu_img "$TARGET"; then
+    IMAGE_NAME="tenbox-builder"
+    DOCKER_TARGET="full"
+else
+    IMAGE_NAME="tenbox-builder-base"
+    DOCKER_TARGET="base"
+fi
 
 resolve_script() {
     local arch="$1" target="$2"
@@ -82,11 +96,12 @@ echo "=== TenBox Docker Build ==="
 echo "  Arch:   $ARCH"
 echo "  Target: $TARGET"
 echo "  Script: $SCRIPT_PATH"
+echo "  Image:  $IMAGE_NAME (docker target: $DOCKER_TARGET)"
 echo ""
 
 if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
-    echo "Building Docker image '$IMAGE_NAME'..."
-    docker build -t "$IMAGE_NAME" "$SCRIPT_DIR"
+    echo "Building Docker image '$IMAGE_NAME' (target=$DOCKER_TARGET)..."
+    docker build --target "$DOCKER_TARGET" -t "$IMAGE_NAME" "$SCRIPT_DIR"
     echo ""
 fi
 
