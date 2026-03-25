@@ -291,6 +291,7 @@ private class DownloadCompletionDelegate: NSObject, URLSessionDownloadDelegate {
     let continuation: CheckedContinuation<Void, Error>
     var session: URLSession?
     private var resumed = false
+    private var lastProgressTime: CFAbsoluteTime = 0
 
     init(destPath: String,
          progress: @escaping (UInt64, UInt64) -> Void,
@@ -310,6 +311,9 @@ private class DownloadCompletionDelegate: NSObject, URLSessionDownloadDelegate {
             downloadTask.cancel()
             return
         }
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastProgressTime >= 0.2 else { return }
+        lastProgressTime = now
         let total = totalBytesExpectedToWrite > 0 ? UInt64(totalBytesExpectedToWrite) : 0
         progressCallback(UInt64(totalBytesWritten), total)
     }
