@@ -6,20 +6,20 @@
     <description>TenBox Updates</description>
     <language>zh-CN</language>
     <item>
-      <title>Version 0.5.7</title>
+      <title>Version 0.5.9</title>
       <description><![CDATA[
         <ul>
-          <li>- 修复磁盘损坏问题</li>
-          <li>- 请在升级前确保已备份虚拟机内的重要数据</li>
+          <li>- 支持 Debian 13 镜像</li>
+          <li>- 重要‼ 0.5.7 之前版本，请在升级前确保已备份虚拟机内的重要数据</li>
         </ul>
       ]]></description>
-      <pubDate>Sat, 21 Mar 2026 00:00:00 -0000</pubDate>
+      <pubDate>Thu, 26 Mar 2026 00:00:00 -0000</pubDate>
       <sparkle:minimumSystemVersion>10</sparkle:minimumSystemVersion>
       <enclosure
-        url="https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.7.msi"
+        url="https://files.xiaozhi.me/tenbox/releases/TenBox_0.5.9.msi"
         sparkle:os="windows"
-        sparkle:version="0.5.7"
-        sparkle:shortVersionString="0.5.7"
+        sparkle:version="0.5.9"
+        sparkle:shortVersionString="0.5.9"
         sparkle:installerArguments="/passive"
         length="3231744"
         type="application/octet-stream"
@@ -30,7 +30,8 @@
       <description><![CDATA[
         <ul>
           <li>- 支持 Debian 13 镜像</li>
-          <li>- 重要‼️ 0.5.7 之前版本，请在升级前确保已备份虚拟机内的重要数据</li>
+          <li>- 修复下载镜像进度跳跃</li>
+          <li>- 重要‼ 0.5.7 之前版本，请在升级前确保已备份虚拟机内的重要数据</li>
         </ul>
       ]]></description>
       <pubDate>Thu, 26 Mar 2026 00:00:00 -0000</pubDate>
