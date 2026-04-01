@@ -14,7 +14,7 @@
 
 set -e
 
-ROOTFS_SIZE="20G"
+ROOTFS_SIZE="100G"
 SUITE="trixie"
 MIRROR="http://deb.debian.org/debian"
 MIRROR_SECURITY="http://deb.debian.org/debian-security"
