@@ -103,6 +103,10 @@ std::unique_ptr<WhvpVm> WhvpVm::Create(uint32_t cpu_count) {
     // Override CPUID leaf 1 to mask features WHVP doesn't support:
     //   ECX bit  3: MONITOR/MWAIT  — causes #UD in WHVP
     //   ECX bit 24: TSC-Deadline   — WHVP xAPIC may not fire these
+    // Also clear EBX[31:24] (Initial APIC ID) since the partition-level
+    // override carries the host's APIC ID. Per-vCPU APIC ID patching
+    // happens in the CPUID exit handler if WHVP triggers one; if not,
+    // the guest reads the correct ID from the LAPIC register directly.
     int cpuid1[4]{};
     __cpuidex(cpuid1, 1, 0);
     {
@@ -110,7 +114,7 @@ std::unique_ptr<WhvpVm> WhvpVm::Create(uint32_t cpu_count) {
         auto& o = cpuid_overrides[num_overrides++];
         o.Function = 1;
         o.Eax = static_cast<uint32_t>(cpuid1[0]);
-        o.Ebx = static_cast<uint32_t>(cpuid1[1]);
+        o.Ebx = static_cast<uint32_t>(cpuid1[1]) & 0x00FFFFFFu;
         o.Ecx = static_cast<uint32_t>(cpuid1[2]) & ~kMaskOutEcx;
         o.Edx = static_cast<uint32_t>(cpuid1[3]);
         LOG_INFO("CPUID 1 override: ECX 0x%08X -> 0x%08X (masked MWAIT+TSC-deadline)",
@@ -125,6 +129,25 @@ std::unique_ptr<WhvpVm> WhvpVm::Create(uint32_t cpu_count) {
         if (FAILED(hr)) {
             LOG_WARN("CpuidResultList failed: 0x%08lX (non-fatal)", hr);
         }
+    }
+
+    // Force CPUID leaf 1 to exit so the per-vCPU handler can patch
+    // EBX[31:24] with the correct Initial APIC ID for each vCPU.
+    memset(&prop, 0, sizeof(prop));
+    prop.ExtendedVmExits.X64CpuidExit = 1;
+    hr = WHvSetPartitionProperty(vm->partition_,
+        WHvPartitionPropertyCodeExtendedVmExits,
+        &prop, sizeof(prop.ExtendedVmExits));
+    if (FAILED(hr)) {
+        LOG_WARN("Set ExtendedVmExits.CpuidExit failed: 0x%08lX (non-fatal)", hr);
+    }
+
+    UINT32 cpuid_exit_list[] = { 1, 0xB, 0x1F };
+    hr = WHvSetPartitionProperty(vm->partition_,
+        WHvPartitionPropertyCodeCpuidExitList,
+        cpuid_exit_list, sizeof(cpuid_exit_list));
+    if (FAILED(hr)) {
+        LOG_WARN("CpuidExitList failed: 0x%08lX (non-fatal)", hr);
     }
 
     hr = WHvSetupPartition(vm->partition_);

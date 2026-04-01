@@ -135,8 +135,20 @@ std::unique_ptr<WhvpVCpu> WhvpVCpu::Create(WhvpVm& vm, uint32_t vp_index,
     WHV_REGISTER_VALUE apic_val{};
     hr = WHvGetVirtualProcessorRegisters(vm.Handle(), vp_index, &apic_name, 1, &apic_val);
     if (SUCCEEDED(hr)) {
-        // xAPIC: ID is in bits [31:24] of the register value
-        vcpu->apic_id_ = static_cast<uint32_t>((apic_val.Reg64 >> 24) & 0xFF);
+        LOG_INFO("vCPU %u: WHvX64RegisterApicId raw Reg64=0x%016llX",
+                 vp_index, (unsigned long long)apic_val.Reg64);
+        // WHVP may return the APIC ID in xAPIC MMIO format (bits [31:24])
+        // or as a direct value in the low bits. Try both, then fall back
+        // to vp_index to guarantee unique IDs across vCPUs.
+        uint32_t id_shifted = static_cast<uint32_t>((apic_val.Reg64 >> 24) & 0xFF);
+        uint32_t id_direct  = static_cast<uint32_t>(apic_val.Reg64 & 0xFFFFFFFF);
+        if (id_shifted != 0 || vp_index == 0) {
+            vcpu->apic_id_ = id_shifted;
+        } else if (id_direct != 0) {
+            vcpu->apic_id_ = id_direct;
+        } else {
+            vcpu->apic_id_ = vp_index;
+        }
     } else {
         vcpu->apic_id_ = vp_index;
         LOG_WARN("Failed to read APIC ID for vCPU %u: 0x%08lX, assuming %u",
