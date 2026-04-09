@@ -591,7 +591,6 @@ else
     mkdir -p "\$UNIT_DIR"
 
     OC_VERSION=\$(node \$USER_HOME/.npm-global/lib/node_modules/openclaw/dist/index.js --version 2>/dev/null || echo "unknown")
-    OC_TOKEN=\$(grep -o '"token":"[^"]*"' \$USER_HOME/.openclaw/openclaw.json 2>/dev/null | head -1 | cut -d'"' -f4 || echo "tenbox")
 
     cat > "\$UNIT_DIR/openclaw-gateway.service" << UNIT
 [Unit]
@@ -603,13 +602,16 @@ Wants=network-online.target
 ExecStart=/usr/bin/node \$USER_HOME/.npm-global/lib/node_modules/openclaw/dist/index.js gateway --port 18789
 Restart=always
 RestartSec=5
-KillMode=process
+TimeoutStopSec=30
+TimeoutStartSec=30
+SuccessExitStatus=0 143
+KillMode=control-group
 Environment=HOME=\$USER_HOME
 Environment=TMPDIR=/tmp
-Environment=PATH=\$USER_HOME/.local/bin:\$USER_HOME/.npm-global/bin:\$USER_HOME/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/usr/bin:\$USER_HOME/.local/bin:\$USER_HOME/.npm-global/bin:\$USER_HOME/bin:\$USER_HOME/.volta/bin:\$USER_HOME/.asdf/shims:\$USER_HOME/.bun/bin:\$USER_HOME/.nvm/current/bin:\$USER_HOME/.fnm/current/bin:\$USER_HOME/.local/share/pnpm:/usr/local/bin:/bin
 Environment=OPENCLAW_GATEWAY_PORT=18789
-Environment=OPENCLAW_GATEWAY_TOKEN=\$OC_TOKEN
 Environment=OPENCLAW_SYSTEMD_UNIT=openclaw-gateway.service
+Environment="OPENCLAW_WINDOWS_TASK_NAME=OpenClaw Gateway"
 Environment=OPENCLAW_SERVICE_MARKER=openclaw
 Environment=OPENCLAW_SERVICE_KIND=gateway
 Environment=OPENCLAW_SERVICE_VERSION=\$OC_VERSION
