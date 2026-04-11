@@ -601,19 +601,42 @@ EOF
 
 do_install_usertools() {
     sudo chroot "$MOUNT_DIR" /bin/bash -e << EOF
-if dpkg -s jq &>/dev/null; then
+browser_ready=0
+if dpkg -s chromium &>/dev/null; then
+    if [ "$HERMES_INSTALL_BROWSER_TOOLS" != "1" ] || dpkg -s ffmpeg &>/dev/null; then
+        browser_ready=1
+    fi
+fi
+
+if dpkg -s jq &>/dev/null && [ "$browser_ready" = "1" ]; then
     echo "  User tools already installed"
     exit 0
 fi
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    jq
-
-if [ "$HERMES_INSTALL_BROWSER_TOOLS" = "1" ]; then
+if ! dpkg -s jq &>/dev/null; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        chromium ffmpeg
-    if ! grep -q 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH' /home/$USER_NAME/.bashrc 2>/dev/null; then
-        echo "export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium" >> /home/$USER_NAME/.bashrc
-    fi
+        jq
+fi
+
+if ! dpkg -s chromium &>/dev/null; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        chromium
+fi
+
+if [ "$HERMES_INSTALL_BROWSER_TOOLS" = "1" ] && ! dpkg -s ffmpeg &>/dev/null; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ffmpeg
+fi
+
+if ! grep -q 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH' /home/$USER_NAME/.bashrc 2>/dev/null; then
+    echo "export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium" >> /home/$USER_NAME/.bashrc
+fi
+
+# 关键：Hermes 首次登录和桌面帮助链接都依赖系统默认浏览器
+if [ -x /usr/bin/chromium ]; then
+    update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/chromium 200 || true
+    update-alternatives --set x-www-browser /usr/bin/chromium || true
+    update-alternatives --install /usr/bin/www-browser www-browser /usr/bin/chromium 200 || true
+    update-alternatives --set www-browser /usr/bin/chromium || true
 fi
 EOF
 }
@@ -853,9 +876,11 @@ fi
 mkdir -p "\$DESKTOP_DIR"
 chown $USER_NAME:$USER_NAME "\$DESKTOP_DIR"
 
-cp /tmp/rootfs-configs/Help.desktop "\$DESKTOP_DIR/Help.desktop"
-chown $USER_NAME:$USER_NAME "\$DESKTOP_DIR/Help.desktop"
-chmod +x "\$DESKTOP_DIR/Help.desktop"
+if [ -f /tmp/rootfs-configs/Help.desktop ]; then
+    cp /tmp/rootfs-configs/Help.desktop "\$DESKTOP_DIR/Help.desktop"
+    chown $USER_NAME:$USER_NAME "\$DESKTOP_DIR/Help.desktop"
+    chmod +x "\$DESKTOP_DIR/Help.desktop"
+fi
 
 if [ -f /tmp/rootfs-configs/Hermes.desktop ]; then
     cp /tmp/rootfs-configs/Hermes.desktop "\$DESKTOP_DIR/Hermes.desktop"
@@ -1033,9 +1058,7 @@ check "init"              test -x /sbin/init
 check "systemd"           dpkg -s systemd
 check "xfce4"             dpkg -s xfce4
 check "lightdm"           dpkg -s lightdm
-if [ "$HERMES_INSTALL_BROWSER_TOOLS" = "1" ]; then
-    check "chromium"      dpkg -s chromium
-fi
+check "chromium"          dpkg -s chromium
 check "spice-vdagent"     dpkg -s spice-vdagent
 check "qemu-guest-agent"  dpkg -s qemu-guest-agent
 check "pulseaudio"        dpkg -s pulseaudio
