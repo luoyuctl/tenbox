@@ -192,6 +192,7 @@ STEPS=(
     "install_xfce"
     "install_spice"
     "install_guest_agent"
+    "install_ntp"
     "install_devtools"
     "install_audio"
     "install_ibus"
@@ -225,6 +226,7 @@ STEP_DESCRIPTIONS=(
     "Install XFCE desktop"
     "Install SPICE vdagent"
     "Install Guest Agent"
+    "Install NTP time sync"
     "Install development tools"
     "Install audio (PulseAudio + ALSA)"
     "Install IBus Chinese input method"
@@ -552,6 +554,26 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent
 EOF
 }
 
+do_install_ntp() {
+    sudo chroot "$MOUNT_DIR" /bin/bash -e << 'EOF'
+if dpkg -s systemd-timesyncd &>/dev/null; then
+    echo "  systemd-timesyncd already installed"
+    exit 0
+fi
+DEBIAN_FRONTEND=noninteractive apt-get install -y systemd-timesyncd
+
+mkdir -p /etc/systemd/timesyncd.conf.d
+cat > /etc/systemd/timesyncd.conf.d/tenbox.conf << 'NTP'
+[Time]
+NTP=ntp.aliyun.com
+FallbackNTP=cn.pool.ntp.org pool.ntp.org
+NTP
+
+systemctl enable systemd-timesyncd.service 2>/dev/null || true
+timedatectl set-ntp true 2>/dev/null || true
+EOF
+}
+
 do_install_devtools() {
     sudo chroot "$MOUNT_DIR" /bin/bash -e << 'EOF'
 if dpkg -s python3 &>/dev/null && dpkg -s g++ &>/dev/null && dpkg -s cmake &>/dev/null; then
@@ -559,7 +581,7 @@ if dpkg -s python3 &>/dev/null && dpkg -s g++ &>/dev/null && dpkg -s cmake &>/de
     exit 0
 fi
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    python3 python3-pip python3-venv \
+    python3 python3-venv \
     g++ make cmake git
 EOF
 }
@@ -681,26 +703,26 @@ do_install_uv() {
     sudo cp "$CACHE_UV" "$MOUNT_DIR/tmp/uv_install.sh"
 
     sudo chroot "$MOUNT_DIR" /bin/bash -e << EOF
-if command -v uv &>/dev/null; then
+USER_HOME=/home/$USER_NAME
+
+if runuser -l $USER_NAME -c 'command -v uv' &>/dev/null; then
     echo "  uv already installed"
     exit 0
 fi
 echo "Installing uv..."
-bash /tmp/uv_install.sh
+runuser -l $USER_NAME -c 'bash /tmp/uv_install.sh'
 rm -f /tmp/uv_install.sh
 
-if [ -x /root/.local/bin/uv ]; then
-    ln -sf /root/.local/bin/uv /usr/local/bin/uv
-fi
-if [ -x /root/.local/bin/uvx ]; then
-    ln -sf /root/.local/bin/uvx /usr/local/bin/uvx
-fi
+# Symlink to /usr/local/bin so uv is available system-wide (e.g. during hermes install as root)
+ln -sf \$USER_HOME/.local/bin/uv /usr/local/bin/uv
+ln -sf \$USER_HOME/.local/bin/uvx /usr/local/bin/uvx
 
-# Ensure uv is on PATH for all users
-if ! grep -q '/.local/bin' /home/$USER_NAME/.bashrc 2>/dev/null; then
-    cat >> /home/$USER_NAME/.bashrc << 'UV_PATH'
-export PATH="$HOME/.local/bin:$PATH"
-UV_PATH
+# Ensure uv, hermes venv python, and user-local bins are on PATH
+if ! grep -q 'hermes/hermes-agent/venv/bin' \$USER_HOME/.bashrc 2>/dev/null; then
+    cat >> \$USER_HOME/.bashrc << 'HERMES_PATH'
+export PATH="\$HOME/.hermes/hermes-agent/venv/bin:\$HOME/.local/bin:\$PATH"
+HERMES_PATH
+    chown $USER_NAME:$USER_NAME \$USER_HOME/.bashrc
 fi
 EOF
 }
@@ -744,8 +766,8 @@ cd "\$INSTALL_DIR"
 
 uv python install 3.11
 uv venv venv --python 3.11
-VIRTUAL_ENV="\$INSTALL_DIR/venv" uv pip install -e .
-VIRTUAL_ENV="\$INSTALL_DIR/venv" uv pip install qrcode[pil]
+UV_LINK_MODE=copy VIRTUAL_ENV="\$INSTALL_DIR/venv" uv pip install -e ".[all]"
+UV_LINK_MODE=copy VIRTUAL_ENV="\$INSTALL_DIR/venv" uv pip install qrcode[pil]
 
 ln -sf "\$INSTALL_DIR/venv/bin/hermes" /usr/local/bin/hermes
 ln -sf "\$INSTALL_DIR/venv/bin/hermes-agent" /usr/local/bin/hermes-agent
@@ -1121,6 +1143,7 @@ run_step "apt_update"     "Updating apt sources"         do_apt_update
 run_step "install_xfce"   "Installing XFCE desktop"      do_install_xfce
 run_step "install_spice"  "Installing SPICE vdagent"     do_install_spice
 run_step "install_guest_agent" "Installing Guest Agent"  do_install_guest_agent
+run_step "install_ntp"    "Installing NTP time sync"     do_install_ntp
 run_step "install_devtools" "Installing dev tools"       do_install_devtools
 run_step "install_audio"  "Installing audio"             do_install_audio
 run_step "install_ibus"   "Installing IBus"              do_install_ibus
