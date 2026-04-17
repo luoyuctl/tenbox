@@ -148,7 +148,6 @@ CACHE_TAR="$(realpath -m "$CACHE_DIR/debootstrap-${SUITE}-x86_64-${STATE_KEY}.ta
 CACHE_UV="$SCRIPTS_CACHE_DIR/uv_install.sh"
 CACHE_NODESOURCE="$SCRIPTS_CACHE_DIR/nodesource_setup_22.x.sh"
 CACHE_HERMES_WHEELS="$CACHE_DIR/hermes-wheels-x86_64"
-CACHE_HERMES_SRC="$CACHE_DIR/hermes-agent-${HERMES_VERSION}.tar.gz"
 
 WORK_ROOT="${TENBOX_WORK_DIR:-/tmp/tenbox-rootfs-hermes-x86_64}"
 WORK_DIR="${WORK_ROOT}-${STATE_SUFFIX}"
@@ -728,14 +727,9 @@ EOF
 }
 
 do_install_hermes() {
-    if [ ! -f "$CACHE_HERMES_SRC" ] || [ ! -s "$CACHE_HERMES_SRC" ]; then
-        echo "  Downloading Hermes Agent source tarball..."
-        rm -f "$CACHE_HERMES_SRC" "$CACHE_HERMES_SRC.tmp"
-        curl -fsSL "https://codeload.github.com/NousResearch/hermes-agent/tar.gz/refs/tags/${HERMES_VERSION}" -o "$CACHE_HERMES_SRC.tmp"
-        mv "$CACHE_HERMES_SRC.tmp" "$CACHE_HERMES_SRC"
-    fi
-    sudo cp "$CACHE_HERMES_SRC" "$MOUNT_DIR/tmp/hermes-agent.tar.gz"
-
+    # Clone a real git working tree inside the VM so `hermes update`
+    # (which runs `git pull` + `git submodule update`) works later on.
+    # We always pull the pinned release tag directly from GitHub.
     sudo chroot "$MOUNT_DIR" /bin/bash -e << EOF
 if command -v hermes >/dev/null 2>&1; then
     echo "  Hermes Agent already installed"
@@ -746,35 +740,49 @@ echo "Installing Hermes Agent ${HERMES_VERSION}..."
 USER_HOME=/home/$USER_NAME
 HERMES_HOME=\$USER_HOME/.hermes
 INSTALL_DIR=\$HERMES_HOME/hermes-agent
-TMP_DIR=\$(mktemp -d)
 
 export HOME=\$USER_HOME
 export PIP_CACHE_DIR=/var/cache/pip
 export UV_CACHE_DIR=/var/cache/pip/uv
 mkdir -p "\$HERMES_HOME" /var/cache/pip/uv
 
-tar -xzf /tmp/hermes-agent.tar.gz -C "\$TMP_DIR"
-EXTRACTED_DIR=\$(find "\$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -1)
-if [ -z "\$EXTRACTED_DIR" ]; then
-    echo "Failed to extract Hermes Agent source"
-    exit 1
-fi
-
 rm -rf "\$INSTALL_DIR"
-mv "\$EXTRACTED_DIR" "\$INSTALL_DIR"
+git clone "https://github.com/NousResearch/hermes-agent.git" "\$INSTALL_DIR"
 cd "\$INSTALL_DIR"
+if git rev-parse --verify --quiet "refs/tags/${HERMES_VERSION}" >/dev/null; then
+    git checkout "tags/${HERMES_VERSION}" -b "pinned-${HERMES_VERSION}"
+else
+    git checkout "${HERMES_VERSION}"
+fi
+git submodule update --init --recursive
+
+# Pre-create runtime subdirs expected by hermes (Manual Install Step 6).
+# hermes itself will lazy-create most of them, but doing it here avoids
+# first-run write failures and keeps ownership consistent.
+mkdir -p "\$HERMES_HOME"/{cron,sessions,logs,memories,skills,pairing,hooks,image_cache,audio_cache,whatsapp/session}
 
 uv python install 3.11
 uv venv venv --python 3.11
-UV_LINK_MODE=copy VIRTUAL_ENV="\$INSTALL_DIR/venv" uv pip install -e ".[all]"
-UV_LINK_MODE=copy VIRTUAL_ENV="\$INSTALL_DIR/venv" uv pip install qrcode[pil]
+export VIRTUAL_ENV="\$INSTALL_DIR/venv"
+UV_LINK_MODE=copy uv pip install -e ".[all]"
+UV_LINK_MODE=copy uv pip install qrcode[pil]
+# Skipped on purpose:
+#  - tinker-atropos (Manual Install Step 4): only used by the RL training
+#    toolset, which requires TINKER_API_KEY + WANDB_API_KEY at runtime.
+#    We don't do model fine-tuning in TenBox.
+#  - \`npm install\` (Manual Install Step 5): installs \`agent-browser\`, a
+#    Node.js CLI that wraps its own bundled Playwright Chromium (~300MB).
+#    Hermes has a CDP fallback that can auto-launch the system \`chromium\`
+#    package with \`--remote-debugging-port\`, so we stay on that path.
+#    If agent-browser is ever needed, run inside the VM:
+#        cd ~/.hermes/hermes-agent && npm install \\
+#            && npx playwright install chromium
 
 ln -sf "\$INSTALL_DIR/venv/bin/hermes" /usr/local/bin/hermes
 ln -sf "\$INSTALL_DIR/venv/bin/hermes-agent" /usr/local/bin/hermes-agent
 
 chown -R $USER_NAME:$USER_NAME "\$HERMES_HOME"
 [ -d "\$USER_HOME/.local" ] && chown -R $USER_NAME:$USER_NAME "\$USER_HOME/.local"
-rm -rf "\$TMP_DIR" /tmp/hermes-agent.tar.gz
 EOF
 
     DETECTED_HERMES_VERSION=$(sudo chroot "$MOUNT_DIR" runuser -l "$USER_NAME" -c \
@@ -834,21 +842,6 @@ model:
 # generating a long non-streaming response.
 display:
   streaming: true
-
-# Gateway streaming: progressively edit the bot reply as tokens arrive.
-# Applies to messaging platforms that support message editing
-# (Feishu, Telegram, Discord, Slack, WeCom, DingTalk, ...).
-# Signal / Email / Home Assistant are auto-detected and skipped.
-#
-# Note: Feishu currently goes through im.v1.message.update (edit API),
-# so every streamed chunk adds an "[Edited]" marker in the client.
-# Native CardKit streaming (PR #6365 / #6432 / #10311) is NOT merged
-# in v0.10.0 yet. To avoid the edited-marker clutter, either:
-#   - set transport: off  (single final message, no typewriter effect)
-#   - raise edit_interval (e.g. 1.5-2.0) so chunks merge into fewer edits
-streaming:
-  enabled: true
-  transport: edit
 CFGEOF
 chown $USER_NAME:$USER_NAME "\$HERMES_DIR/config.yaml"
 
@@ -870,6 +863,10 @@ WorkingDirectory=\$HERMES_AGENT_DIR
 Environment="PATH=\$HERMES_AGENT_DIR/venv/bin:\$HERMES_AGENT_DIR/node_modules/.bin:/usr/bin:\$USER_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="VIRTUAL_ENV=\$HERMES_AGENT_DIR/venv"
 Environment="HERMES_HOME=\$HERMES_DIR"
+# Point any Playwright-driven code at the preinstalled system chromium
+# so it doesn't try to download its own bundled browser.
+Environment="PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium"
+Environment="CHROME_PATH=/usr/bin/chromium"
 Restart=on-failure
 RestartSec=30
 RestartForceExitStatus=75
