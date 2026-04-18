@@ -413,3 +413,115 @@ These are things to decide before/during Phase 1:
 - A hosted control plane ("TenBox Cloud"). Users bring their own networking.
 - Guest OS image marketplace beyond the existing `image_manager.py` sources.
 - Cluster / multi-host VM scheduling.
+
+---
+
+## 13. Prior Art & Positioning
+
+A clear-eyed look at what TenBox's architecture resembles, and — more
+importantly — why we are still building it rather than composing existing
+tools.
+
+### 13.1 Architectural analogues
+
+| TenBox component | VMware analogue | libvirt-world analogue |
+|---|---|---|
+| `tenboxd` (headless daemon) | ESXi `hostd` | `libvirtd` |
+| `tenbox-vm-runtime` (one per VM) | VMX process | per-VM `qemu-system-*` |
+| HTTPS + token RPC, Unix socket locally | vSphere API over HTTPS | `qemu:///system` + `qemu+tls://...` |
+| Embedded Web UI | ESXi Host Client (HTML5) | Cockpit VMs module / Kimchi |
+| Desktop manager as thin client | vSphere Client | virt-manager |
+| `tenbox` CLI | ESXCLI / PowerCLI | `virsh` |
+| Local shared-mem framebuffer + remote JPEG/WebRTC | VMware MKS / Blast | SPICE / VNC + noVNC |
+
+Topologically, TenBox is **closest to a single-host ESXi with its built-in
+Host Client**, and **closest in spirit to the libvirtd + virsh +
+virt-manager + Cockpit** open-source stack. Proxmox VE is the product that
+combines both (single-host-friendly, Web UI first, hobbyist-accessible) and
+is a useful UX reference — though our scope is narrower.
+
+**Explicitly not in scope:** anything resembling vCenter, Proxmox Cluster,
+or KubeVirt. TenBox is single-host by design; multi-host fleet management
+is a different product.
+
+### 13.2 Why not just libvirt on a Raspberry Pi?
+
+It is worth being honest: **a motivated user can already achieve much of
+what TenBox provides on a Pi 5 today** by installing
+`qemu-system-aarch64 + libvirt-daemon-system + cockpit-machines`, pointing
+virt-manager or Cockpit at it, and running their own guest images. Several
+hobbyists already do. That makes the "why TenBox" question non-trivial, and
+the answer needs to hold up.
+
+TenBox's differentiation is at the **product layer, not the virtualization
+layer**. We are not trying to beat libvirt at being a general-purpose
+virtualization toolkit; we are trying to be a better fit for a specific
+audience and a specific use case.
+
+**1. Vertical focus on AI-agent sandboxing.**
+libvirt is a general-purpose platform; it assumes users are comfortable
+editing domain XML, building storage pools, wiring up bridged networking,
+and installing a guest OS from scratch. TenBox's audience is "people who
+want to run an AI agent safely on their own machine" — which includes
+researchers, PMs, and hobbyists, not only sysadmins. For that audience we
+ship:
+
+- Curated guest images (Chromium, OpenClaw, QwenPaw, Hermes) with SPICE
+  vdagent, `qemu-guest-agent`, desktop environment, and an agent runtime
+  pre-installed.
+- A built-in LLM proxy that maps guest OpenAI-style traffic to the user's
+  configured upstream provider, with per-request logging. libvirt has no
+  equivalent and never will — it is out of scope for them.
+- One-click virtiofs shared folders, port forwarding, and clipboard
+  integration via a GUI, with sensible defaults.
+
+**2. Truly cross-platform client experience.**
+libvirt is Linux-only on the host side. Mac and Windows users either run
+Cockpit in a browser (adequate but not native) or install virt-manager
+(painful on macOS, requires X11). With TenBox:
+
+- The same Desktop Manager app on macOS, Windows, or Linux can manage
+  local VMs (HVF / WHVP / KVM) **and** remote VMs on a Pi 5 (KVM) from a
+  single UI.
+- Users on Apple Silicon get native HVF locally plus a unified remote
+  experience — something no libvirt-based setup offers.
+
+**3. Single-binary, zero-config deployment.**
+A libvirt setup on Debian 12+ now requires `libvirtd` + `virtqemud` +
+`virtnetworkd` + `virtlogd` + `qemu-system-*` plus PolicyKit rules, a
+network bridge, and a storage pool. `tenboxd` is designed to be **one
+binary + one systemd unit + an auto-generated TLS cert + token**.
+Installation and uninstallation are trivial. For "install TenBox on my Pi
+this afternoon to try it" this matters a lot.
+
+**4. Purpose-built remote UX, not retrofitted.**
+The `ipc::protocol_v1` already separates display / input / audio /
+clipboard into distinct channels designed for low-latency desktop
+interaction. Our remote path reuses the same model with JPEG/WebRTC
+transport. Achieving the equivalent with libvirt + SPICE + noVNC requires
+a significant glue layer (cf. Kasm Workspaces) and exposes the user to
+SPICE TLS configuration, client compatibility issues, and separate port
+forwarding for each VM.
+
+**5. Integrated release vehicle.**
+`tenboxd`, the runtime, the guest images, the image catalog
+(`image_manager.py`), and the managers are all released together and
+versioned together. A user gets a coherent experience; libvirt users
+assemble it themselves from many independently-versioned pieces.
+
+### 13.3 When users should NOT use TenBox
+
+Being explicit about this keeps us honest and keeps the scope tight:
+
+- Running Windows Server / complex enterprise guests → **libvirt or
+  Proxmox**.
+- Live migration, HA, DRS, clustering → **Proxmox Cluster / vCenter /
+  KubeVirt**.
+- PCI passthrough, SR-IOV, custom NUMA topology → **libvirt**.
+- Bare-metal provisioning and infrastructure-as-code heavy workflows →
+  **libvirt + Terraform/Ansible providers**.
+
+If the user's question is "how do I virtualize things in general", libvirt
+is the correct answer. TenBox's answer is narrower and therefore can be
+sharper: "how do I safely run AI agents on my own hardware, including a
+Raspberry Pi, and control them from anywhere?"
