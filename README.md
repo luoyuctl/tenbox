@@ -30,9 +30,10 @@ Under the hood, TenBox is a cross-platform Virtual Machine Monitor (VMM) with a 
 - **Clipboard sharing** — bidirectional host ↔ guest clipboard via SPICE vdagent protocol
 - **Guest agent** — qemu-guest-agent integration for VM lifecycle management
 - **NAT networking** — built-in DHCP server, TCP/UDP NAT proxy, ICMP relay via lwIP
-- **Port forwarding** — expose guest TCP services on host ports
+- **Port forwarding** — host-forward (expose guest TCP services on host ports) and guest-forward (route guest traffic to host services)
 - **Multi-VM management** — create, edit, start, stop, reboot, and delete VMs; config persisted as `vm.json`
-- **Platform-specific machine models** — shared VMM core with x86_64 and aarch64 guest support
+- **Platform-specific machine models** — shared VMM core with x86_64 (Local APIC / I/O APIC) and aarch64 (GICv3) guest support
+- **LLM proxy** — built-in OpenAI-compatible HTTP proxy that maps guest requests to configurable upstream providers, with per-request logging
 
 ## Quick Start
 
@@ -84,21 +85,21 @@ This produces the macOS artifacts in `build/`:
 
 ### Prepare VM Images
 
-Use the Docker wrapper to build images (requires Docker):
+Use the Docker wrapper to build images (requires Docker). Several rootfs flavors are available — `chromium`, `openclaw`, `qwenpaw`, and `hermes`:
 
 ```bash
 # x86_64 images
 ./scripts/docker/build.sh x86_64 kernel
 ./scripts/docker/build.sh x86_64 initramfs
-./scripts/docker/build.sh x86_64 rootfs-chromium
+./scripts/docker/build.sh x86_64 rootfs-chromium   # or rootfs-openclaw / rootfs-qwenpaw / rootfs-hermes
 
 # arm64 images (for macOS Apple Silicon)
 ./scripts/docker/build.sh arm64 kernel
 ./scripts/docker/build.sh arm64 initramfs
-./scripts/docker/build.sh arm64 rootfs-chromium
+./scripts/docker/build.sh arm64 rootfs-chromium    # or rootfs-openclaw / rootfs-qwenpaw / rootfs-hermes
 ```
 
-The rootfs script supports incremental builds with a checkpoint system. If interrupted, re-run the same command to resume:
+The rootfs scripts support incremental builds with a checkpoint system. If interrupted, re-run the same command to resume:
 
 ```bash
 ./scripts/docker/build.sh x86_64 rootfs-chromium --status       # Show build progress
@@ -126,7 +127,7 @@ To create a VM through the GUI, click **New VM** and point to the kernel, initra
 
 Usage documentation (Chinese): **[养虾教程](https://my.feishu.cn/wiki/Q96KwUH1Di3cAik2W7kcQsWKncb)** (Feishu Wiki).
 
-Guest images built with the Chromium, QwenPaw, and OpenClaw rootfs scripts also install a desktop shortcut **`Help.desktop`** that opens the same page (source: [`scripts/rootfs-configs/Help.desktop`](scripts/rootfs-configs/Help.desktop)).
+Guest images built with the Chromium, OpenClaw, QwenPaw, and Hermes rootfs scripts also install a desktop shortcut **`Help.desktop`** that opens the same page (source: [`scripts/rootfs-configs/Help.desktop`](scripts/rootfs-configs/Help.desktop)).
 
 ## Architecture
 
@@ -162,7 +163,7 @@ TenBox uses a two-process design. The manager process owns the UI and spawns a s
 
 ```
 src/
-├── common/              # Shared types: VmSpec, PortForward, SharedFolder
+├── common/              # Shared types: VmSpec, PortForward, SharedFolder, port helpers
 ├── core/                # VM engine
 │   ├── arch/
 │   │   ├── x86_64/      # x86_64 machine model, Linux boot protocol, ACPI
@@ -171,12 +172,13 @@ src/
 │   │   ├── serial/      # UART 16550
 │   │   ├── timer/       # i8254 PIT
 │   │   ├── rtc/         # CMOS RTC
-│   │   ├── irq/         # I/O APIC & i8259 PIC
+│   │   ├── irq/         # x86 Local APIC / I/O APIC / i8259 PIC, aarch64 GICv3
 │   │   ├── acpi/        # ACPI PM registers
 │   │   ├── pci/         # PCI host bridge
 │   │   └── virtio/      # VirtIO MMIO + blk/net/gpu/input/serial/snd/fs
+│   ├── disk/            # qcow2 / raw disk image backends, qcow2 consistency checker
 │   ├── guest_agent/     # qemu-guest-agent protocol handler
-│   ├── net/             # lwIP NAT backend
+│   ├── net/             # lwIP NAT backend (DHCP, NAT, ICMP, port-forward)
 │   ├── vdagent/         # SPICE vdagent (clipboard protocol)
 │   └── vmm/             # VM orchestration, address space & hypervisor interface
 │       ├── hypervisor_vm.h    # Abstract HypervisorVm interface
@@ -188,27 +190,36 @@ src/
 │   │   └── ipc/         # Named pipe transport, shared framebuffer
 │   └── macos/
 │       ├── hypervisor/  # HVF (Hypervisor Framework)
-│       ├── console/     # POSIX console I/O
-│       └── ipc/         # Unix socket transport
-├── ipc/                 # Shared IPC protocol and transport abstractions
+│       └── console/     # POSIX console I/O
+├── ipc/                 # Shared IPC protocol v1, Unix socket transport, shared framebuffer
 ├── manager/             # Windows GUI manager application
-│   ├── ui/              # Win32 GUI: shell, display, dialogs, tabs, WASAPI audio
-│   │   └── audio/       # WASAPI audio player
-│   └── (business logic) # i18n, VM forms, settings, HTTP download, update checker
+│   ├── ui/              # Win32 GUI: shell, display, dialogs, tabs, LLM proxy dialog
+│   ├── audio/           # WASAPI audio player
+│   ├── resources/       # App icons and resource files
+│   ├── llm_proxy.{h,cpp}      # OpenAI-compatible HTTP proxy for guest LLM traffic
+│   ├── manager_service.{h,cpp}# Core manager service (VM lifecycle, IPC, state)
+│   ├── app_settings.{h,cpp}   # Persisted app settings (LLM proxy, UI prefs, etc.)
+│   ├── image_source.{h,cpp}   # Remote image catalog
+│   ├── http_download.{h,cpp}  # HTTP(S) downloader
+│   ├── i18n.{h,cpp}           # Localized strings
+│   └── vm_forms.{h,cpp}       # VM create/edit form helpers
 ├── manager-macos/       # macOS manager (SwiftUI/AppKit + Obj-C++ bridge)
-│   ├── Views/           # SwiftUI screens and display views
-│   ├── Bridge/          # Swift <-> C++/Obj-C++ IPC bridge
+│   ├── Views/           # SwiftUI screens, display views, LLM proxy view
+│   ├── Services/        # Image source service, LLM proxy service
+│   ├── Bridge/          # Swift <-> C++/Obj-C++ IPC and VM process bridge
+│   ├── Input/           # Keyboard / pointer capture handlers
 │   ├── Audio/           # CoreAudio playback
 │   ├── Clipboard/       # Host clipboard integration
 │   └── Resources/       # App bundle resources, entitlements, shaders
 └── runtime/             # VM runtime process entry point & CLI
 scripts/
-├── x86_64/              # x86_64 image build scripts
-├── arm64/               # arm64 image build scripts
+├── x86_64/              # x86_64 image build scripts (kernel, initramfs, rootfs-*)
+├── arm64/               # arm64 image build scripts (kernel, initramfs, rootfs-*)
 ├── docker/              # Dockerfile & build.sh wrapper
 ├── rootfs-scripts/      # In-chroot setup scripts (shared)
 ├── rootfs-services/     # systemd service units (shared)
 ├── rootfs-configs/      # Shared guest files (e.g. Help.desktop wiki shortcut)
+├── ci/                  # CI helpers (image manifest updates, OSS upload)
 ├── requirements.txt     # Python dependencies for release tooling
 ├── image_manager.py     # Image source management helper
 ├── build-macos.sh       # Build macOS app bundle and update ZIP
@@ -236,12 +247,12 @@ When NAT is enabled, TenBox provides a user-mode network:
 | Setting | Default | Override |
 |---|---|---|
 | Root password | `tenbox` | `ROOT_PASSWORD` env var |
-| User account | `openclaw` / `openclaw` | `USER_NAME` / `USER_PASSWORD` env var |
+| User account | `tenbox` / `tenbox` | `USER_NAME` / `USER_PASSWORD` env var |
 | Hostname | `tenbox-vm` | — |
 | Desktop | XFCE 4 (LightDM) | — |
-| Disk size | 20 GB qcow2 | `ROOTFS_SIZE` variable |
-| Distro | Debian Bookworm | — |
-| Pre-installed | Chrome, Node.js 22, SPICE vdagent, qemu-guest-agent | — |
+| Disk size | 100 GB qcow2 | `ROOTFS_SIZE` variable |
+| Distro | Debian Trixie | — |
+| Pre-installed | Chromium, SPICE vdagent, qemu-guest-agent | — |
 
 ## VM Runtime CLI
 
@@ -258,14 +269,18 @@ build/tenbox-vm-runtime --kernel build/Image --initrd build/initramfs-x86_64.cpi
 | `--initrd <path>` | Path to initramfs |
 | `--disk <path>` | Path to raw or qcow2 disk image |
 | `--cmdline <str>` | Kernel command line |
-| `--memory <MB>` | Guest RAM in MB (default: 256) |
+| `--memory <MB>` | Guest RAM in MB (default: 256, minimum: 16) |
 | `--cpus <N>` | Number of vCPUs (default: 1, max: 128) |
-| `--net` | Enable virtio-net with NAT |
-| `--forward H:G` | Forward host port H to guest port G (repeatable) |
+| `--net` | Start with virtio-net link up (default: link down) |
+| `--debug` | Enable debug mode (verbose kernel output) |
+| `--hostfwd <spec>` | Host-to-guest port forward (repeatable), e.g. `tcp:127.0.0.1:8080-:80` (loopback) or `tcp:0.0.0.0:8080-:80` (LAN-accessible) |
+| `--guestfwd <spec>` | Guest-to-host forward (repeatable), e.g. `guestfwd:10.0.2.3:80-:18981` or `guestfwd:10.0.2.3:80-127.0.0.1:18981` |
 | `--share TAG:PATH[:ro]` | Share a host directory via virtiofs (repeatable) |
 | `--interactive on\|off` | Enable serial console I/O (default: on) |
 | `--vm-id <id>` | VM instance identifier (default: `default`) |
-| `--control-endpoint <name>` | IPC endpoint for manager communication: named pipe on Windows, Unix socket path on macOS |
+| `--control-endpoint <name>` | IPC endpoint for manager communication: named pipe name on Windows (without `\\.\pipe\` prefix), Unix socket path on macOS |
+| `--version`, `-v` | Show version and exit |
+| `--help`, `-h` | Show help and exit |
 
 ## Dependencies
 
