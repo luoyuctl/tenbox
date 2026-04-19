@@ -1,4 +1,4 @@
-#include "platform/macos/console/posix_console_port.h"
+#include "platform/posix/console/posix_console_port.h"
 #include "core/vmm/types.h"
 #include <unistd.h>
 #include <poll.h>
@@ -17,7 +17,6 @@ PosixConsolePort::PosixConsolePort() {
         raw_mode_ = true;
     }
 
-    // Enable UTF-8 output (macOS terminals are UTF-8 by default)
     setvbuf(stdout, nullptr, _IONBF, 0);
 }
 
@@ -38,7 +37,7 @@ size_t PosixConsolePort::Read(uint8_t* out, size_t size) {
     pfd.fd = STDIN_FILENO;
     pfd.events = POLLIN;
 
-    int ret = poll(&pfd, 1, 50);  // 50ms timeout
+    int ret = poll(&pfd, 1, 50);
     if (ret <= 0) return 0;
 
     ssize_t n = ::read(STDIN_FILENO, out, size);

@@ -28,6 +28,14 @@ static std::string WideToUtf8(const std::wstring& wide) {
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+
+#if defined(__linux__)
+// Linux uses st_atim/st_mtim/st_ctim (POSIX.1-2008) rather than the legacy
+// BSD/macOS st_atimespec spelling this file originally targeted.
+#define st_atimespec st_atim
+#define st_mtimespec st_mtim
+#define st_ctimespec st_ctim
+#endif
 #include <sys/statvfs.h>
 #include <sys/time.h>
 #endif

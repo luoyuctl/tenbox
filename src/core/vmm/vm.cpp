@@ -11,10 +11,12 @@
 #include "platform/macos/hypervisor/aarch64/hvf_vm.h"
 #elif defined(_WIN32)
 #include "core/arch/x86_64/x86_machine.h"
+#elif defined(__linux__) && defined(__x86_64__)
+#include "core/arch/x86_64/x86_machine.h"
 #endif
 
 static std::unique_ptr<MachineModel> CreateMachineModel() {
-#if defined(_WIN32) || (defined(__APPLE__) && defined(__x86_64__))
+#if defined(_WIN32) || (defined(__APPLE__) && defined(__x86_64__)) || (defined(__linux__) && defined(__x86_64__))
     return std::make_unique<X86Machine>();
 #elif defined(__APPLE__) && defined(__aarch64__)
     return std::make_unique<Aarch64Machine>();
@@ -42,6 +44,9 @@ static std::string GetDefaultCmdline(bool debug_mode) {
 
 Vm::~Vm() {
     running_ = false;
+    if (console_input_thread_.joinable()) {
+        console_input_thread_.join();
+    }
     for (auto& t : vcpu_threads_) {
         if (t.joinable()) t.join();
     }
@@ -84,6 +89,9 @@ std::unique_ptr<Vm> Vm::Create(const VmConfig& config) {
     vm->audio_port_ = config.audio_port;
     if (!vm->console_port_ && config.interactive) {
         vm->console_port_ = VmPlatform::CreateConsolePort();
+        // We own the console port: no external IPC controller will pump stdin
+        // for us, so we need to run our own input thread.
+        vm->owned_console_input_ = true;
     }
 
     vm->machine_ = CreateMachineModel();
@@ -111,7 +119,7 @@ std::unique_ptr<Vm> Vm::Create(const VmConfig& config) {
         vm->vcpu_startup_[i] = std::make_unique<VCpuStartupState>();
     }
 
-#if defined(_WIN32) || (defined(__APPLE__) && defined(__x86_64__))
+#if defined(_WIN32) || (defined(__APPLE__) && defined(__x86_64__)) || (defined(__linux__) && defined(__x86_64__))
     {
         auto* x86m = dynamic_cast<X86Machine*>(vm->machine_.get());
         if (x86m) {
@@ -229,7 +237,7 @@ void Vm::SetupVCpuCallbacks(uint32_t vcpu_index) {
 }
 
 void Vm::FinalizeBoot(const VmConfig& config) {
-#if defined(_WIN32) || (defined(__APPLE__) && defined(__x86_64__))
+#if defined(_WIN32) || (defined(__APPLE__) && defined(__x86_64__)) || (defined(__linux__) && defined(__x86_64__))
     {
         auto* x86m = dynamic_cast<X86Machine*>(machine_.get());
         if (x86m) {
@@ -590,6 +598,18 @@ void Vm::VCpuThreadFunc(uint32_t vcpu_index) {
 int Vm::Run() {
     running_ = true;
     LOG_INFO("Starting VM execution...");
+
+    if (owned_console_input_ && console_port_) {
+        console_input_thread_ = std::thread([this]() {
+            uint8_t buf[64];
+            while (running_.load()) {
+                size_t n = console_port_->Read(buf, sizeof(buf));
+                if (n > 0) {
+                    InjectConsoleBytes(buf, n);
+                }
+            }
+        });
+    }
 
     // Phase 1: launch threads; each creates its vCPU then signals ready.
     for (uint32_t i = 0; i < cpu_count_; i++) {
