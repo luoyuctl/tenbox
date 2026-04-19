@@ -637,7 +637,7 @@ void VirtioFsDevice::HandleSetAttr(const FuseInHeader* in_hdr, const uint8_t* in
             CloseHandle(h);
         }
 #else
-        ::truncate(path.c_str(), static_cast<off_t>(setattr_in->size));
+        (void)::truncate(path.c_str(), static_cast<off_t>(setattr_in->size));
 #endif
     }
 

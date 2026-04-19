@@ -27,7 +27,8 @@ uint64_t I8254Pit::MeasureTscFrequency() {
     uint32_t crystal = static_cast<uint32_t>(info[2]);
     if (denom && numer && crystal) {
         uint64_t freq = static_cast<uint64_t>(crystal) * numer / denom;
-        LOG_INFO("TSC frequency from CPUID 0x15: %llu Hz", freq);
+        LOG_INFO("TSC frequency from CPUID 0x15: %llu Hz",
+                 static_cast<unsigned long long>(freq));
         return freq;
     }
 
@@ -64,7 +65,8 @@ uint64_t I8254Pit::MeasureTscFrequency() {
                      static_cast<double>(ts_end.tv_nsec - ts_start.tv_nsec) / 1e9;
 #endif
     uint64_t freq = static_cast<uint64_t>((tsc_end - tsc_start) / elapsed);
-    LOG_INFO("TSC frequency measured: %llu Hz", freq);
+    LOG_INFO("TSC frequency measured: %llu Hz",
+             static_cast<unsigned long long>(freq));
     return freq;
 }
 
