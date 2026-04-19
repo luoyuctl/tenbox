@@ -134,7 +134,7 @@ bool VirtioFsDevice::AddShare(const std::string& tag, const std::string& host_pa
 
     shares_version_++;
     virtual_root_mtime_ = static_cast<uint64_t>(time(nullptr));
-    LOG_INFO("VirtIO FS: added share '%s' -> '%s' (readonly=%s, inode=%llu)", 
+    LOG_INFO("VirtIO FS: added share '%s' -> '%s' (readonly=%s, inode=%" PRIu64 ")",
              tag.c_str(), host_path.c_str(), readonly ? "true" : "false", share_root_inode);
     return true;
 }
@@ -637,7 +637,13 @@ void VirtioFsDevice::HandleSetAttr(const FuseInHeader* in_hdr, const uint8_t* in
             CloseHandle(h);
         }
 #else
-        (void)::truncate(path.c_str(), static_cast<off_t>(setattr_in->size));
+        // GCC's warn_unused_result on truncate() survives a plain (void)
+        // cast, so stash the result in a discarded local.  A short-write
+        // failure here is reported to the guest implicitly via the next
+        // getattr; nothing actionable to do at this point.
+        int truncate_rc = ::truncate(path.c_str(),
+                                     static_cast<off_t>(setattr_in->size));
+        (void)truncate_rc;
 #endif
     }
 

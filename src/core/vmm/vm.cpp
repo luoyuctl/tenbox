@@ -266,8 +266,8 @@ bool Vm::AllocateMemory(uint64_t size) {
 
     uint8_t* base = VmPlatform::AllocateRam(alloc);
     if (!base) {
-        LOG_ERROR("Failed to allocate %llu MB guest RAM",
-                  (unsigned long long)(alloc / (1024 * 1024)));
+        LOG_ERROR("Failed to allocate %" PRIu64 " MB guest RAM",
+                  alloc / (1024 * 1024));
         return false;
     }
 
@@ -292,15 +292,16 @@ bool Vm::AllocateMemory(uint64_t size) {
             if (!hv_vm_->MapMemory(mmio_gap_end, base + mem_.low_size,
                                     mem_.high_size, true))
                 return false;
-            LOG_INFO("Guest RAM: %llu MB  [0-0x%llX] + [0x%llX-0x%llX] at HVA %p",
-                     (unsigned long long)(alloc / (1024 * 1024)),
-                     (unsigned long long)(mem_.low_size - 1),
-                     (unsigned long long)mmio_gap_end,
-                     (unsigned long long)(mmio_gap_end + mem_.high_size - 1),
+            LOG_INFO("Guest RAM: %" PRIu64 " MB  [0-0x%" PRIX64 "] + "
+                     "[0x%" PRIX64 "-0x%" PRIX64 "] at HVA %p",
+                     alloc / (1024 * 1024),
+                     mem_.low_size - 1,
+                     mmio_gap_end,
+                     mmio_gap_end + mem_.high_size - 1,
                      base);
         } else {
-            LOG_INFO("Guest RAM: %llu MB at HVA %p",
-                     (unsigned long long)(alloc / (1024 * 1024)), base);
+            LOG_INFO("Guest RAM: %" PRIu64 " MB at HVA %p",
+                     alloc / (1024 * 1024), base);
         }
     } else {
         // ARM-style layout: RAM starts at a high base, MMIO below
@@ -311,9 +312,8 @@ bool Vm::AllocateMemory(uint64_t size) {
         if (!hv_vm_->MapMemory(ram_base, base, alloc, true))
             return false;
 
-        LOG_INFO("Guest RAM: %llu MB at GPA 0x%llX, HVA %p",
-                 (unsigned long long)(alloc / (1024 * 1024)),
-                 (unsigned long long)ram_base, base);
+        LOG_INFO("Guest RAM: %" PRIu64 " MB at GPA 0x%" PRIX64 ", HVA %p",
+                 alloc / (1024 * 1024), ram_base, base);
     }
     return true;
 }
@@ -577,22 +577,22 @@ void Vm::VCpuThreadFunc(uint32_t vcpu_index) {
             break;
 
         case VCpuExitAction::kShutdown:
-            LOG_INFO("vCPU %u: shutdown (after %llu exits)",
-                     vcpu_index, (unsigned long long)exit_count);
+            LOG_INFO("vCPU %u: shutdown (after %" PRIu64 " exits)",
+                     vcpu_index, exit_count);
             RequestStop();
             return;
 
         case VCpuExitAction::kError:
-            LOG_ERROR("vCPU %u: error (after %llu exits)",
-                      vcpu_index, (unsigned long long)exit_count);
+            LOG_ERROR("vCPU %u: error (after %" PRIu64 " exits)",
+                      vcpu_index, exit_count);
             exit_code_.store(1);
             RequestStop();
             return;
         }
     }
 
-    LOG_INFO("vCPU %u stopped (total exits: %llu)",
-             vcpu_index, (unsigned long long)exit_count);
+    LOG_INFO("vCPU %u stopped (total exits: %" PRIu64 ")",
+             vcpu_index, exit_count);
 }
 
 int Vm::Run() {

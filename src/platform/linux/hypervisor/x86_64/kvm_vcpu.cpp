@@ -288,8 +288,8 @@ VCpuExitAction KvmVCpu::RunOnce() {
         return VCpuExitAction::kShutdown;
 
     case KVM_EXIT_FAIL_ENTRY:
-        LOG_ERROR("kvm: KVM_EXIT_FAIL_ENTRY reason=0x%llx cpu=%u",
-                  (unsigned long long)run_->fail_entry.hardware_entry_failure_reason,
+        LOG_ERROR("kvm: KVM_EXIT_FAIL_ENTRY reason=0x%" PRIx64 " cpu=%u",
+                  (uint64_t)run_->fail_entry.hardware_entry_failure_reason,
                   run_->fail_entry.cpu);
         return VCpuExitAction::kError;
 

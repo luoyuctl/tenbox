@@ -9,6 +9,7 @@
 
 #include "core/disk/qcow2.h"
 #include <cassert>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -179,7 +180,8 @@ static uint32_t ReadBe32(const std::string& path, long offset) {
     if (!f) return 0;
     uint32_t val = 0;
     fseek(f, offset, SEEK_SET);
-    fread(&val, sizeof(val), 1, f);
+    size_t n = fread(&val, sizeof(val), 1, f);
+    (void)n;
     fclose(f);
     return be32(val);
 }
@@ -252,8 +254,8 @@ static bool TestGrowRefcountTable() {
     // Record initial refcount table offset & cluster count
     uint64_t orig_rft_off = ReadBe64(path, 48);
     uint32_t orig_rft_clusters = ReadBe32(path, 56);
-    fprintf(stdout, "  initial rft_off=0x%llX rft_clusters=%u\n",
-            (unsigned long long)orig_rft_off, orig_rft_clusters);
+    fprintf(stdout, "  initial rft_off=0x%" PRIX64 " rft_clusters=%u\n",
+            orig_rft_off, orig_rft_clusters);
 
     // Phase 1: write enough data to trigger GrowRefcountTable
     // With 512-byte clusters, 16384 clusters = 8 MB.
@@ -280,8 +282,8 @@ static bool TestGrowRefcountTable() {
     // Verify refcount table actually grew
     uint64_t new_rft_off = ReadBe64(path, 48);
     uint32_t new_rft_clusters = ReadBe32(path, 56);
-    fprintf(stdout, "  after growth rft_off=0x%llX rft_clusters=%u\n",
-            (unsigned long long)new_rft_off, new_rft_clusters);
+    fprintf(stdout, "  after growth rft_off=0x%" PRIX64 " rft_clusters=%u\n",
+            new_rft_off, new_rft_clusters);
     TEST_ASSERT(new_rft_off != orig_rft_off || new_rft_clusters > orig_rft_clusters,
                 "refcount table did not grow");
 

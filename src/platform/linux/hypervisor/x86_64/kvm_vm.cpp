@@ -89,15 +89,14 @@ bool KvmVm::MapMemory(GPA gpa, void* hva, uint64_t size, bool writable) {
     region.userspace_addr = reinterpret_cast<uint64_t>(hva);
 
     if (::ioctl(vm_fd_, KVM_SET_USER_MEMORY_REGION, &region) < 0) {
-        LOG_ERROR("kvm: KVM_SET_USER_MEMORY_REGION(slot=%u gpa=0x%llx size=0x%llx) failed: %s",
-                  slot, (unsigned long long)gpa, (unsigned long long)size,
-                  strerror(errno));
+        LOG_ERROR("kvm: KVM_SET_USER_MEMORY_REGION(slot=%u gpa=0x%" PRIx64
+                  " size=0x%" PRIx64 ") failed: %s",
+                  slot, gpa, size, strerror(errno));
         return false;
     }
 
-    LOG_INFO("kvm: mapped slot=%u GPA=0x%llx size=0x%llx HVA=%p%s",
-             slot, (unsigned long long)gpa, (unsigned long long)size, hva,
-             writable ? "" : " [RO]");
+    LOG_INFO("kvm: mapped slot=%u GPA=0x%" PRIx64 " size=0x%" PRIx64 " HVA=%p%s",
+             slot, gpa, size, hva, writable ? "" : " [RO]");
     return true;
 }
 
