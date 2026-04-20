@@ -9,6 +9,8 @@ class AddressSpace;
 
 namespace whvp {
 
+class WhvpDoorbellRegistrar;
+
 class WhvpVm : public HypervisorVm {
 public:
     ~WhvpVm() override;
@@ -23,12 +25,17 @@ public:
         uint32_t index, AddressSpace* addr_space) override;
     void RequestInterrupt(const InterruptRequest& req) override;
 
+    bool RegisterQueueDoorbell(uint64_t mmio_addr, uint32_t len, uint32_t datamatch,
+                               std::function<void()> cb) override;
+    void UnregisterAllQueueDoorbells() override;
+
     WhvpVm(const WhvpVm&) = delete;
     WhvpVm& operator=(const WhvpVm&) = delete;
 
 private:
     WhvpVm() = default;
     WHV_PARTITION_HANDLE partition_ = nullptr;
+    std::unique_ptr<WhvpDoorbellRegistrar> doorbell_;
 };
 
 } // namespace whvp

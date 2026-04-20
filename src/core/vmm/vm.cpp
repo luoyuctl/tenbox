@@ -450,6 +450,23 @@ bool Vm::TryEnableIoEventFd(VirtioMmioDevice* dev, uint64_t mmio_base,
         ioeventfd_slots_.push_back(s);
     }
     return true;
+#elif defined(_WIN32)
+    if (!dev || num_queues == 0 || !hv_vm_) return false;
+    const uint64_t gpa = mmio_base + VirtioMmioDevice::kQueueNotifyOffset;
+    bool any = false;
+    for (uint32_t q = 0; q < num_queues; ++q) {
+        if (hv_vm_->RegisterQueueDoorbell(
+                gpa, VirtioMmioDevice::kQueueNotifyLen, q,
+                [dev, q]() { dev->DispatchQueueNotify(q); })) {
+            any = true;
+        }
+    }
+    if (any) {
+        LOG_INFO("WHPX doorbell: virtio-mmio @ 0x%llx (%u queues)",
+                 static_cast<unsigned long long>(mmio_base),
+                 static_cast<unsigned>(num_queues));
+    }
+    return any;
 #else
     (void)dev;
     (void)mmio_base;
@@ -514,6 +531,9 @@ void Vm::ShutdownIoEventFds() {
         }
     }
     ioeventfd_slots_.clear();
+#elif defined(_WIN32)
+    if (hv_vm_)
+        hv_vm_->UnregisterAllQueueDoorbells();
 #endif
 }
 

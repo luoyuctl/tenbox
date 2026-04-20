@@ -1,11 +1,13 @@
 #include "platform/windows/hypervisor/whvp_vm.h"
 #include "platform/windows/hypervisor/whvp_vcpu.h"
+#include "platform/windows/hypervisor/whvp_doorbell.h"
 #include <cinttypes>
 #include <intrin.h>
 
 namespace whvp {
 
 WhvpVm::~WhvpVm() {
+    doorbell_.reset();
     if (partition_) {
         WHvDeletePartition(partition_);
         partition_ = nullptr;
@@ -157,9 +159,27 @@ std::unique_ptr<WhvpVm> WhvpVm::Create(uint32_t cpu_count) {
         return nullptr;
     }
 
+    {
+        auto db = std::make_unique<WhvpDoorbellRegistrar>(vm->partition_);
+        if (db->Available()) {
+            LOG_INFO("WHPX doorbell: enabled");
+            vm->doorbell_ = std::move(db);
+        } else {
+            LOG_INFO("WHPX doorbell: unavailable (virtio kicks use MMIO exit path)");
+        }
+    }
+
     LOG_INFO("WHVP partition created (cpus=%u)", cpu_count);
     return vm;
 }
+
+bool WhvpVm::RegisterQueueDoorbell(uint64_t mmio_addr, uint32_t len, uint32_t datamatch,
+                                   std::function<void()> cb) {
+    if (!doorbell_) return false;
+    return doorbell_->Register(mmio_addr, len, datamatch, std::move(cb));
+}
+
+void WhvpVm::UnregisterAllQueueDoorbells() { doorbell_.reset(); }
 
 bool WhvpVm::MapMemory(GPA gpa, void* hva, uint64_t size, bool writable) {
     WHV_MAP_GPA_RANGE_FLAGS flags =

@@ -2,6 +2,7 @@ if(WIN32)
     add_library(tenbox_platform STATIC
         ${CMAKE_SOURCE_DIR}/src/platform/windows/hypervisor/whvp_platform.cpp
         ${CMAKE_SOURCE_DIR}/src/platform/windows/hypervisor/whvp_vm.cpp
+        ${CMAKE_SOURCE_DIR}/src/platform/windows/hypervisor/whvp_doorbell.cpp
         ${CMAKE_SOURCE_DIR}/src/platform/windows/hypervisor/whvp_vcpu.cpp
         ${CMAKE_SOURCE_DIR}/src/platform/windows/console/std_console_port.cpp
         ${CMAKE_SOURCE_DIR}/src/platform/windows/ipc/shared_framebuffer_win32.cpp

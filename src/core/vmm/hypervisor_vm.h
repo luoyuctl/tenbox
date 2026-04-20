@@ -3,6 +3,7 @@
 #include "core/vmm/types.h"
 #include "core/vmm/hypervisor_vcpu.h"
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 class AddressSpace;
@@ -69,6 +70,28 @@ public:
                                      int /*event_fd*/, uint32_t /*datamatch*/) {
         return false;
     }
+
+    // WHPX-style doorbell: hypervisor absorbs guest MMIO writes matching
+    // (mmio_addr, len, datamatch) and signals the host via an auto-reset
+    // event; `cb` runs on a backend-owned dispatcher thread. Linux/KVM
+    // should keep using RegisterIoEventFd + eventfd instead.
+    //
+    // Callback must be lightweight (enqueue work, do not block) because it
+    // shares one dispatcher with all registered queues.
+    virtual bool RegisterQueueDoorbell(uint64_t /*mmio_addr*/, uint32_t /*len*/,
+                                       uint32_t /*datamatch*/,
+                                       std::function<void()> /*cb*/) {
+        return false;
+    }
+    virtual bool UnregisterQueueDoorbell(uint64_t /*mmio_addr*/, uint32_t /*len*/,
+                                         uint32_t /*datamatch*/) {
+        return false;
+    }
+
+    // Tear down every queue doorbell registered via RegisterQueueDoorbell.
+    // Default no-op; WHPX uses this on VM shutdown instead of per-queue
+    // UnregisterQueueDoorbell to avoid racing the dispatcher thread.
+    virtual void UnregisterAllQueueDoorbells() {}
 
     virtual void SetGuestMemMap(const GuestMemMap*) {}
 
