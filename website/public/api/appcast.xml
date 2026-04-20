@@ -6,22 +6,23 @@
     <description>TenBox Updates</description>
     <language>zh-CN</language>
     <item>
-      <title>Version 0.6.0</title>
+      <title>Version 0.7.0</title>
       <description><![CDATA[
         <ul>
-          <li>- 修复 vCPU 数量不生效的问题</li>
+          <li>- 菜单中增加帮助文档</li>
+          <li>- 优化性能</li>
           <li>- 重要‼ 0.5.7 之前版本，请在升级前确保已备份虚拟机内的重要数据</li>
         </ul>
       ]]></description>
-      <pubDate>Thu, 02 Apr 2026 00:00:00 -0000</pubDate>
+      <pubDate>Tue, 21 Apr 2026 00:00:00 -0000</pubDate>
       <sparkle:minimumSystemVersion>10</sparkle:minimumSystemVersion>
       <enclosure
-        url="https://files.xiaozhi.me/tenbox/releases/TenBox_0.6.0.msi"
+        url="https://files.xiaozhi.me/tenbox/releases/TenBox_0.7.0.msi"
         sparkle:os="windows"
-        sparkle:version="0.6.0"
-        sparkle:shortVersionString="0.6.0"
+        sparkle:version="0.7.0"
+        sparkle:shortVersionString="0.7.0"
         sparkle:installerArguments="/passive"
-        length="3231744"
+        length="3256320"
         type="application/octet-stream"
       />
     </item>
