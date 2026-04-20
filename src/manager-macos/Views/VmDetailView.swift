@@ -25,7 +25,7 @@ class VmSession: ObservableObject {
     private let bridge = TenBoxBridgeWrapper()
     private weak var clipboardHandler: ClipboardHandler?
     private var connecting = false
-    private static let maxConsoleSize = 32 * 1024
+    private static let maxConsoleSize = 64 * 1024
 
     init(vmId: String, clipboardHandler: ClipboardHandler) {
         self.vmId = vmId

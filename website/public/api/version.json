@@ -16,12 +16,12 @@
       "min_os": "Windows 10"
     },
     "macos": {
-      "latest_version": "0.5.9",
-      "release_notes": "- 支持 Debian 13 镜像\n- 修复下载镜像进度跳跃\n- 重要‼ 0.5.7 之前版本，请在升级前确保已备份虚拟机内的重要数据",
-      "release_date": "2026-03-26",
-      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox-0.5.9.dmg",
-      "sha256": "5e46f3c361783f5b60d7a6d63f5fc4ab7ff77d5c76c4004ac4637fa233775be2",
-      "size": 4595325,
+      "latest_version": "0.7.0",
+      "release_notes": "- 菜单中增加帮助文档\n- 优化性能\n- 重要‼ 0.5.7 之前版本，请在升级前确保已备份虚拟机内的重要数据",
+      "release_date": "2026-04-21",
+      "download_url": "https://files.xiaozhi.me/tenbox/releases/TenBox-0.7.0.dmg",
+      "sha256": "7e4d501b2932fe9808ceae7c570e6628cc01aab433493107ef006c8d088945f5",
+      "size": 4613468,
       "min_os": "macOS 12"
     }
   }

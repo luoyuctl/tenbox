@@ -46,8 +46,8 @@ public:
     static void ResetState(TextState& state);
 
 private:
-    static constexpr size_t kMaxLen  = 32 * 1024;
-    static constexpr size_t kTrimAt  = 24 * 1024;
+    static constexpr size_t kMaxLen  = 64 * 1024;
+    static constexpr size_t kTrimAt  = 48 * 1024;
 
     HWND console_    = nullptr;
     HWND console_in_ = nullptr;
