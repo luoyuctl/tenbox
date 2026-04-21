@@ -163,7 +163,7 @@ enum class S {
     // Hypervisor check
     kHvCheckTitle,
     kHvCheckMessage,
-    kHvNoDllMessage,
+    kHvUnsupportedOsMessage,
     kHvBtnAutoEnable,
     kHvBtnManualOpen,
     kHvBtnIgnore,

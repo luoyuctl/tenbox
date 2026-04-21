@@ -101,11 +101,44 @@ static bool ActivateExistingInstance() {
     return false;
 }
 
-enum class HvStatus { kAvailable, kNoDll, kNotEnabled };
+enum class HvStatus { kAvailable, kUnsupportedOs, kNotEnabled };
+
+// Returns true if running on Windows 10 version 1803 (build 17134) or later,
+// which is when the Windows Hypervisor Platform API was first introduced.
+// Use RtlGetVersion (not GetVersionExW) so that app-compat shims cannot
+// lie about the OS version.
+static bool IsWhpCapableOs() {
+    HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
+    if (!hNtdll) return false;
+
+    using RtlGetVersionFn = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
+    auto pRtlGetVersion = reinterpret_cast<RtlGetVersionFn>(
+        GetProcAddress(hNtdll, "RtlGetVersion"));
+    if (!pRtlGetVersion) return false;
+
+    RTL_OSVERSIONINFOW osv{};
+    osv.dwOSVersionInfoSize = sizeof(osv);
+    if (pRtlGetVersion(&osv) != 0) return false;
+
+    if (osv.dwMajorVersion > 10) return true;
+    if (osv.dwMajorVersion == 10 && osv.dwBuildNumber >= 17134) return true;
+    return false;
+}
 
 static HvStatus CheckHypervisorStatus() {
+    // OS version gate comes first. WinHvPlatform.dll ships as part of the
+    // "Windows Hypervisor Platform" optional feature on 1803+ — so a missing
+    // DLL on a supported OS means the feature is not installed, not that the
+    // OS is unsupported. Only call it unsupported when the build is pre-1803.
+    if (!IsWhpCapableOs())
+        return HvStatus::kUnsupportedOs;
+
     HMODULE hMod = LoadLibraryW(L"WinHvPlatform.dll");
-    if (!hMod) return HvStatus::kNoDll;
+    if (!hMod) {
+        // Feature not installed/enabled — route through the enable-prompt
+        // flow (dism can install the feature on demand).
+        return HvStatus::kNotEnabled;
+    }
 
     // WHV_CAPABILITY_CODE 0x0000 = WHvCapabilityCodeHypervisorPresent
     using GetCapFn = HRESULT(WINAPI*)(int, void*, UINT32, UINT32*);
@@ -113,7 +146,7 @@ static HvStatus CheckHypervisorStatus() {
         GetProcAddress(hMod, "WHvGetCapability"));
     if (!pGetCap) {
         FreeLibrary(hMod);
-        return HvStatus::kNoDll;
+        return HvStatus::kNotEnabled;
     }
 
     struct { BOOL HypervisorPresent; } cap{};
@@ -134,7 +167,6 @@ static bool EnableHypervisorPlatform() {
     sei.lpParameters =
         L"/online /enable-feature "
         L"/featurename:HypervisorPlatform "
-        L"/featurename:VirtualMachinePlatform "
         L"/all /norestart";
     sei.nShow = SW_HIDE;
 
@@ -175,12 +207,14 @@ static bool CheckHypervisorAndPrompt() {
     if (status == HvStatus::kAvailable)
         return true;
 
-    if (status == HvStatus::kNoDll) {
+    if (status == HvStatus::kUnsupportedOs) {
+        // Pre-1803: WHP doesn't exist. Nothing we can do — tell the user and
+        // exit so the runtime doesn't try to start a partition that can't work.
         MessageBoxW(nullptr,
-            i18n::tr_w(i18n::S::kHvNoDllMessage).c_str(),
+            i18n::tr_w(i18n::S::kHvUnsupportedOsMessage).c_str(),
             i18n::tr_w(i18n::S::kHvCheckTitle).c_str(),
             MB_OK | MB_ICONERROR);
-        return true;
+        return false;
     }
 
     const auto title = i18n::tr_w(i18n::S::kHvCheckTitle);

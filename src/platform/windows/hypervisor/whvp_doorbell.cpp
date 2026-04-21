@@ -10,6 +10,20 @@ namespace {
 constexpr DWORD kMaxDoorbellSlots =
     MAXIMUM_WAIT_OBJECTS > 0 ? static_cast<DWORD>(MAXIMUM_WAIT_OBJECTS) - 1u : 63u;
 
+// WHvCreateNotificationPort / WHvDeleteNotificationPort were added after
+// Windows 10 1803. Referencing them directly would add static imports to
+// WinHvPlatform.dll that cause the loader to reject the EXE on 1803 with
+// "entry point not found" before main() runs. Resolve them dynamically and
+// call through these function pointers instead.
+using PFN_WHvCreateNotificationPort = HRESULT(WINAPI*)(
+    WHV_PARTITION_HANDLE, const WHV_NOTIFICATION_PORT_PARAMETERS*, HANDLE,
+    WHV_NOTIFICATION_PORT_HANDLE*);
+using PFN_WHvDeleteNotificationPort = HRESULT(WINAPI*)(
+    WHV_PARTITION_HANDLE, WHV_NOTIFICATION_PORT_HANDLE);
+
+static PFN_WHvCreateNotificationPort g_pfnCreateNotificationPort = nullptr;
+static PFN_WHvDeleteNotificationPort g_pfnDeleteNotificationPort = nullptr;
+
 void FillDoorbellMatch(WHV_DOORBELL_MATCH_DATA* m, uint64_t mmio_addr, uint32_t len,
                        uint32_t datamatch) {
     memset(m, 0, sizeof(*m));
@@ -21,20 +35,35 @@ void FillDoorbellMatch(WHV_DOORBELL_MATCH_DATA* m, uint64_t mmio_addr, uint32_t 
 }
 
 // IsWHv*Present() is not exported from all WinHvPlatform.lib builds; resolve
-// the real entry points from the loaded WinHvPlatform.dll instead.
+// the real entry points from the loaded WinHvPlatform.dll instead. Also
+// caches the notification-port function pointers for later use so we never
+// take the address of those symbols at link time (breaks Windows 1803).
 static bool WhvDoorbellApisAvailable(bool* use_notification_port) {
     HMODULE whv = GetModuleHandleW(L"WinHvPlatform.dll");
+    if (!whv) {
+        // The DLL is normally loaded already because other WHv* calls in
+        // whvp_vm.cpp / whvp_vcpu.cpp import it; load explicitly in case we
+        // got here first.
+        whv = LoadLibraryW(L"WinHvPlatform.dll");
+    }
     if (!whv) {
         *use_notification_port = false;
         return false;
     }
-    const bool notify =
-        GetProcAddress(whv, "WHvCreateNotificationPort") &&
-        GetProcAddress(whv, "WHvDeleteNotificationPort");
+
+    auto pCreate = reinterpret_cast<PFN_WHvCreateNotificationPort>(
+        GetProcAddress(whv, "WHvCreateNotificationPort"));
+    auto pDelete = reinterpret_cast<PFN_WHvDeleteNotificationPort>(
+        GetProcAddress(whv, "WHvDeleteNotificationPort"));
+    const bool notify = (pCreate != nullptr && pDelete != nullptr);
+
     const bool legacy =
         GetProcAddress(whv, "WHvRegisterPartitionDoorbellEvent") &&
         GetProcAddress(whv, "WHvUnregisterPartitionDoorbellEvent");
+
     if (notify) {
+        g_pfnCreateNotificationPort = pCreate;
+        g_pfnDeleteNotificationPort = pDelete;
         *use_notification_port = true;
         return true;
     }
@@ -101,13 +130,13 @@ bool WhvpDoorbellRegistrar::Register(uint64_t mmio_addr, uint32_t len, uint32_t 
     ApiKind api = ApiKind::None;
     WHV_NOTIFICATION_PORT_HANDLE port = nullptr;
 
-    if (use_notification_port_api_) {
+    if (use_notification_port_api_ && g_pfnCreateNotificationPort) {
         WHV_NOTIFICATION_PORT_PARAMETERS params{};
         memset(&params, 0, sizeof(params));
         params.NotificationPortType = WHvNotificationPortTypeDoorbell;
         params.ConnectionVtl = 0;
         params.Doorbell = match;
-        hr = WHvCreateNotificationPort(partition_, &params, ev, &port);
+        hr = g_pfnCreateNotificationPort(partition_, &params, ev, &port);
         api = ApiKind::NotificationPort;
     } else {
         hr = WHvRegisterPartitionDoorbellEvent(partition_, &match, ev);
@@ -154,9 +183,11 @@ void WhvpDoorbellRegistrar::Shutdown() {
     for (auto& up : slots_) {
         if (!up) continue;
         if (up->api == ApiKind::NotificationPort && up->port_handle) {
-            HRESULT hr = WHvDeleteNotificationPort(partition_, up->port_handle);
-            if (FAILED(hr)) {
-                LOG_WARN("WHPX doorbell: WHvDeleteNotificationPort failed: 0x%08lX", hr);
+            if (g_pfnDeleteNotificationPort) {
+                HRESULT hr = g_pfnDeleteNotificationPort(partition_, up->port_handle);
+                if (FAILED(hr)) {
+                    LOG_WARN("WHPX doorbell: WHvDeleteNotificationPort failed: 0x%08lX", hr);
+                }
             }
             up->port_handle = nullptr;
         } else if (up->api == ApiKind::LegacyDoorbell) {
