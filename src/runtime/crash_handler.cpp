@@ -286,11 +286,12 @@ void InstallPlatform() {
 // Alternate signal stack so crash handlers still run when the fault is stack
 // overflow (normal stack is invalid). SA_ONSTACK is only set after sigaltstack
 // succeeds; otherwise the kernel ignores SA_ONSTACK on Linux.
-#if defined(SIGSTKSZ) && (SIGSTKSZ > 0)
-constexpr size_t kAltStackBytes = SIGSTKSZ + 128 * 1024;
-#else
-constexpr size_t kAltStackBytes = 128 * 1024;
-#endif
+//
+// Note: glibc >= 2.34 defines SIGSTKSZ as sysconf(_SC_SIGSTKSZ), which is a
+// runtime call and therefore unusable in #if or constant expressions. We
+// allocate a generous fixed-size buffer that comfortably exceeds the value
+// returned by the kernel even on CET-enabled systems.
+constexpr size_t kAltStackBytes = 256 * 1024;
 alignas(4096) static unsigned char g_alt_stack[kAltStackBytes];
 
 void WriteMetaFilePosix(const char* stamp, int signo, const void* addr,
