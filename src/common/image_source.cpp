@@ -103,8 +103,7 @@ int CompareVersions(const std::string& a, const std::string& b) {
     return 0;
 }
 
-// Current CPU architecture for filtering images (arm64 vs x86_64).
-static std::string GetCurrentPlatform() {
+std::string HostPlatform() {
 #if defined(__aarch64__)
     return "arm64";
 #else
@@ -112,16 +111,19 @@ static std::string GetCurrentPlatform() {
 #endif
 }
 
+std::string NormalizePlatform(const std::string& platform) {
+    return platform.empty() ? std::string("x86_64") : platform;
+}
+
 std::vector<ImageEntry> FilterImages(const std::vector<ImageEntry>& images,
                                      const std::string& current_app_version) {
-    std::string current_platform = GetCurrentPlatform();
+    const std::string current_platform = HostPlatform();
     std::vector<ImageEntry> result;
     for (const auto& img : images) {
         if (img.arch != "microvm") {
             continue;
         }
-        std::string img_platform = img.platform.empty() ? "x86_64" : img.platform;
-        if (img_platform != current_platform) {
+        if (NormalizePlatform(img.platform) != current_platform) {
             continue;
         }
         if (CompareVersions(img.min_app_version, current_app_version) > 0) {

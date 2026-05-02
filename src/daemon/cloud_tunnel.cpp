@@ -1365,6 +1365,19 @@ nlohmann::json CloudTunnel::StartImageDownload(const nlohmann::json& payload) {
     const auto image = ImageFromJson(payload.value("image", nlohmann::json::object()));
     if (image.id.empty() || image.files.empty()) return Error("image_invalid", "invalid image metadata");
 
+    // Hard guard against host/image platform mismatch. Without this, a buggy
+    // or stale console can hand us an x86_64 rootfs on an arm64 host, and we
+    // happily download ~1.6 GB only to fail at boot with "invalid ARM64 Image
+    // magic". Platform identity comes from the image manifest (authoritative)
+    // and is matched against the host's compiled-in arch.
+    const std::string host_platform = image_source::HostPlatform();
+    const std::string image_platform = image_source::NormalizePlatform(image.platform);
+    if (image_platform != host_platform) {
+        return Error("image_arch_mismatch",
+                     "image platform '" + image_platform +
+                         "' does not match host platform '" + host_platform + "'");
+    }
+
     const std::string images_dir = ImagesDir(config_);
     if (image_source::IsImageCached(images_dir, image)) {
         return {{"job_id", ""}, {"cache_id", image.CacheId()}, {"status", "done"}};

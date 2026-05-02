@@ -45,6 +45,17 @@ std::vector<ImageSource> DefaultSources();
 std::vector<ImageSource> ParseSources(const std::string& json);
 std::vector<ImageEntry> ParseImages(const std::string& json);
 
+// Current host CPU platform string used in image manifests:
+// "x86_64" on amd64 builds, "arm64" on aarch64 builds. This is the
+// authoritative platform identifier for image compatibility checks
+// (matches the `platform` field of every entry in images.json).
+std::string HostPlatform();
+
+// Normalize a possibly-empty image platform string to its canonical
+// form ("x86_64" / "arm64"). Empty defaults to "x86_64" to preserve
+// backward compatibility with pre-platform image manifests.
+std::string NormalizePlatform(const std::string& platform);
+
 // Filter: remove entries where arch != "microvm", platform != current CPU, or min_app_version > current
 std::vector<ImageEntry> FilterImages(const std::vector<ImageEntry>& images,
                                      const std::string& current_app_version);
