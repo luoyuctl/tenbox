@@ -25,13 +25,16 @@ extern "C" {
 #include <unistd.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <random>
 #include <sstream>
+#include <string_view>
 #include <thread>
 
 namespace tenbox::daemon {
@@ -511,9 +514,27 @@ bool CloudTunnel::Connect(std::string* error) {
         url.target += "host_id=" + host_id_;
     }
 
+    // Default to IPv4 only. The cloud gateway (my.tenbox.ai) is fronted by
+    // Cloudflare, which is dual-stack — but in practice plenty of home /
+    // SMB / single-board-computer environments (RK3588 boards, consumer
+    // routers, etc.) advertise an IPv6 default route that doesn't actually
+    // forward traffic. Without this hint glibc's RFC 6724 sort would put
+    // AAAA first, the connect() below would either time out or stall, and
+    // the user only sees a generic "failed to read WebSocket handshake"
+    // log line with no clue that the daemon never got past TCP.
+    //
+    // Operators on IPv6-only networks can opt back in with
+    // TENBOX_CLOUD_PREFER_FAMILY=v6 (single-stack v6) or =any
+    // (dual-stack with v6 preferred — pre-fix behaviour).
     addrinfo hints{};
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET;
+    if (const char* fam = std::getenv("TENBOX_CLOUD_PREFER_FAMILY")) {
+        if (std::string_view(fam) == "v6") hints.ai_family = AF_INET6;
+        else if (std::string_view(fam) == "any") hints.ai_family = AF_UNSPEC;
+        // anything else (including "v4") falls through to AF_INET.
+    }
+
     addrinfo* result = nullptr;
     const int gai = ::getaddrinfo(url.host.c_str(), url.port.c_str(), &hints, &result);
     if (gai != 0) {
@@ -521,17 +542,42 @@ bool CloudTunnel::Connect(std::string* error) {
         return false;
     }
 
+    // Walk every candidate so a transient failure on the first record
+    // (e.g. one Cloudflare anycast IP that happens to be flapping) still
+    // tries the next. Capture the last connect() errno so the caller can
+    // log "tried 1.2.3.4:443 -> ECONNREFUSED" instead of the previous
+    // opaque "failed to connect cloud gateway".
     int fd = -1;
+    int last_errno = 0;
+    char last_addr[64] = {};
     for (auto* rp = result; rp; rp = rp->ai_next) {
         fd = ::socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-        if (fd < 0) continue;
-        if (::connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) break;
+        if (fd < 0) {
+            last_errno = errno;
+            continue;
+        }
+        if (::connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+            // Stash the address we actually connected to in case TLS or
+            // the WS handshake fails later and we want to log it.
+            (void)::getnameinfo(rp->ai_addr, rp->ai_addrlen, last_addr,
+                                sizeof(last_addr), nullptr, 0, NI_NUMERICHOST);
+            break;
+        }
+        last_errno = errno;
+        (void)::getnameinfo(rp->ai_addr, rp->ai_addrlen, last_addr,
+                            sizeof(last_addr), nullptr, 0, NI_NUMERICHOST);
         ::close(fd);
         fd = -1;
     }
     ::freeaddrinfo(result);
     if (fd < 0) {
-        if (error) *error = "failed to connect cloud gateway";
+        if (error) {
+            std::ostringstream msg;
+            msg << "failed to connect cloud gateway (";
+            if (last_addr[0]) msg << last_addr << ":" << url.port << ", ";
+            msg << "errno=" << last_errno << " " << std::strerror(last_errno) << ")";
+            *error = msg.str();
+        }
         return false;
     }
     fd_ = fd;
@@ -705,6 +751,34 @@ bool CloudTunnel::ReadJson(nlohmann::json* value) {
 }
 
 void CloudTunnel::ThreadMain() {
+    // Exponential backoff for reconnect attempts. Caps at 60s so a flaky
+    // network or temporary cloud outage does not keep the journal at the
+    // previous 1-attempt-per-second cadence (which on a host with broken
+    // IPv6 + AF_UNSPEC produced ~30k log lines/day for nothing). Reset
+    // only after the link has been *up* for kBackoffResetThreshold so a
+    // pathological connect-then-immediately-disconnect loop still backs
+    // off instead of hot-spinning at 1Hz.
+    using Clock = std::chrono::steady_clock;
+    constexpr auto kBackoffMin = std::chrono::seconds(1);
+    constexpr auto kBackoffMax = std::chrono::seconds(60);
+    constexpr auto kBackoffResetThreshold = std::chrono::seconds(30);
+    auto backoff = kBackoffMin;
+    auto bump_backoff = [&]() {
+        backoff = std::min(backoff * 2, kBackoffMax);
+    };
+    // Sleep `delay` but wake early on shutdown so SIGTERM doesn't have
+    // to wait out a full 60s slot during the backoff phase.
+    auto interruptible_sleep = [this](std::chrono::seconds delay) {
+        const auto deadline = Clock::now() + delay;
+        while (running_ && Clock::now() < deadline) {
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - Clock::now());
+            const auto slice = std::min<std::chrono::milliseconds>(
+                remaining, std::chrono::milliseconds(200));
+            std::this_thread::sleep_for(slice);
+        }
+    };
+
     while (running_) {
         // Refresh the token snapshot at the top of each connect attempt so
         // a successful pair (which writes device.token mid-session) takes
@@ -721,11 +795,14 @@ void CloudTunnel::ThreadMain() {
 
         std::string error;
         if (!Connect(&error)) {
-            std::cerr << "cloud tunnel connect failed: " << error << "\n";
-            std::this_thread::sleep_for(std::chrono::seconds(2));
+            std::cerr << "cloud tunnel connect failed: " << error
+                      << " (retrying in " << backoff.count() << "s)\n";
+            interruptible_sleep(backoff);
+            bump_backoff();
             continue;
         }
 
+        const auto connected_at = Clock::now();
         std::cerr << "cloud tunnel connected as " << host_id_ << "\n";
         SendJson(HelloPayload());
         // Once the WS upgrade succeeds and we know we still need pairing,
@@ -771,7 +848,20 @@ void CloudTunnel::ThreadMain() {
         }
 
         Disconnect();
-        if (running_) std::this_thread::sleep_for(std::chrono::seconds(1));
+        // Reset the backoff only when the session was healthy long enough
+        // that the disconnect can plausibly be a one-off (network blip,
+        // server restart). Sub-threshold sessions keep escalating so a
+        // pathological "WS upgrade succeeds, server kicks us 200ms later"
+        // loop doesn't reconnect at 1Hz.
+        const auto stayed_up = Clock::now() - connected_at;
+        if (stayed_up >= kBackoffResetThreshold) {
+            backoff = kBackoffMin;
+        } else {
+            bump_backoff();
+        }
+        if (running_) {
+            interruptible_sleep(backoff);
+        }
     }
 }
 
