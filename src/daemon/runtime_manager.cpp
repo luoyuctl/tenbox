@@ -1092,17 +1092,30 @@ nlohmann::json RuntimeManager::RemoteRuntimeSnapshot(const std::string& vm_id,
     nlohmann::json snapshot = {
         {"running", true},
         {"display", session->display_state},
-        {"frame", session->last_frame},
         {"framebuffer_ready", framebuffer_ready},
     };
-    // Guest-visible state (cursor bitmap, clipboard activity metadata,
-    // audio activity metadata) MUST NOT appear in a Public snapshot — that
-    // payload travels over the cloud websocket relay, which our threat model
-    // treats as untrusted. Browsers receive these via the WebRTC `control`
-    // DataChannel after DTLS/SRTP is up; the daemon seeds the latest cursor
-    // on channel-open in cloud_tunnel so a late-attaching peer is not stuck
-    // waiting for the next MOVE_CURSOR (virtio_gpu source-side dedup).
+    // Guest-visible state MUST NOT appear in a Public snapshot — that
+    // payload travels over the cloud websocket relay, which our threat
+    // model treats as untrusted. Browsers receive these via the WebRTC
+    // `control` DataChannel after DTLS/SRTP is up; the daemon seeds the
+    // latest cursor on channel-open in cloud_tunnel so a late-attaching
+    // peer is not stuck waiting for the next MOVE_CURSOR (virtio_gpu
+    // source-side dedup).
+    //
+    // What gets stripped and why:
+    //   - cursor: full BGRA bitmap of the OS pointer.
+    //   - clipboard / audio: activity metadata (size/timestamp) that
+    //     leaks user-action timing via side channel.
+    //   - frame: dirty_x/y/width/height plus seq/updated_at would let
+    //     the relay infer where on screen the user is interacting and
+    //     how often. The geometry (width / height / resource_*) is
+    //     already redundant with display.{width,height} which we keep,
+    //     so dropping the whole `frame` field costs the browser nothing
+    //     - the public snapshot is only used to seed the initial video
+    //     element placeholder size, after which `videoEl.videoWidth`
+    //     from the WebRTC track replaces it.
     if (scope == SnapshotScope::kInternal) {
+        snapshot["frame"] = session->last_frame;
         snapshot["cursor"] = session->cursor;
         snapshot["audio"] = session->last_audio;
         snapshot["clipboard"] = session->last_clipboard;
