@@ -11,8 +11,8 @@
 #  4. Drop /etc/tenbox/tenboxd.env with the cloud tunnel URL.
 #  5. Enable + start the systemd unit (the deb installs it but does not
 #     enable it; the env file is only known to be valid here).
-#  6. Tail journalctl until the pairing URL appears, then print it for
-#     the operator.
+#  6. If the host is already paired, report that immediately; otherwise tail
+#     journalctl until the pairing URL appears, then print it for the operator.
 #
 # The previous tarball-based install path is gone: tenbox now ships as
 # a single deb (tenbox_<ver>_{amd64,arm64}.deb) and `host.update` from
@@ -274,6 +274,12 @@ enable_systemd() {
 
 await_pair_url() {
     echo
+    if [ -s "$data_dir/device.token" ]; then
+        echo "this host is already paired; tenboxd is running."
+        echo "open https://my.tenbox.ai/ to manage it."
+        return
+    fi
+
     echo "tenboxd is starting. Waiting for the pairing URL (up to 60s)..."
     pair_url=""
     seen_token=0
