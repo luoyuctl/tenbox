@@ -26,7 +26,7 @@ const steps = [
 <style scoped>
 .howitworks {
   padding: var(--section-padding);
-  background: var(--color-bg-alt);
+  background: var(--color-bg);
 }
 
 .steps {

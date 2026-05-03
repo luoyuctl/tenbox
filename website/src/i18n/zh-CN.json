@@ -1,5 +1,6 @@
 {
   "nav": {
+    "console": "控制台",
     "github": "GitHub"
   },
   "hero": {
@@ -16,8 +17,9 @@
     "cta": "立即下载",
     "cta_win": "Windows 下载",
     "cta_mac": "macOS 下载",
+    "cta_linux": "Linux 一键安装",
     "version": "v0.1.0",
-    "requirements": "Windows 10+ · macOS 12+ (Intel / Apple Silicon)",
+    "requirements": "Windows 10+ · macOS 12+ (Intel / Apple Silicon) · Debian 11+ / Ubuntu 20.04+ (amd64 / arm64)",
     "qq_group": "QQ 互助群",
     "qq_group_number": "295838092"
   },
@@ -37,7 +39,7 @@
     },
     "native": {
       "title": "原生性能",
-      "desc": "直接调用 Windows 和 macOS 系统内置的虚拟化能力，不依赖第三方软件，运行快、占用少。"
+      "desc": "直接调用 Windows / macOS / Linux 的原生虚拟化能力（WHVP / Hypervisor.framework / KVM），不依赖第三方软件，运行快、占用少。"
     },
     "virtio": {
       "title": "体验流畅",
@@ -52,7 +54,7 @@
     "title": "三步开始",
     "step1": {
       "title": "下载安装",
-      "desc": "下载 TenBox，像普通软件一样安装，支持 Windows 和 macOS。"
+      "desc": "Windows / macOS 下载安装包像普通软件一样安装；Linux 一行 curl 命令即可完成。"
     },
     "step2": {
       "title": "选择 Agent",
@@ -61,6 +63,30 @@
     "step3": {
       "title": "开始使用",
       "desc": "自动启动，打开就能用，在图形界面中直接操作你的 Agent。"
+    }
+  },
+  "install": {
+    "title": "下载与安装",
+    "subtitle": "选择你的平台，几分钟即可完成安装。",
+    "windows": {
+      "title": "Windows",
+      "desc": "适用于 Windows 10/11，需启用 Windows 虚拟机平台 (WHVP)。",
+      "cta": "下载安装包"
+    },
+    "macos": {
+      "title": "macOS",
+      "desc": "macOS 12+，原生支持 Apple Silicon 与 Intel。",
+      "cta": "下载 .dmg"
+    },
+    "linux": {
+      "title": "Linux",
+      "desc": "Debian 11+ / Ubuntu 20.04+ / Raspberry Pi OS 11+，amd64 / arm64（已在 Raspberry Pi 5 上验证），需要 glibc 2.31+ 与 /dev/kvm。",
+      "command": "curl -fsSL https://tenbox.ai/install.sh | sh",
+      "footnote": "安装完成后会输出配对 URL，在",
+      "footnote_link": "TenBox Cloud Console",
+      "footnote_after": "中绑定主机即可远程管理。",
+      "copy": "复制",
+      "copied": "已复制"
     }
   },
   "footer": {

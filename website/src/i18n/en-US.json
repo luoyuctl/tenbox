@@ -1,5 +1,6 @@
 {
   "nav": {
+    "console": "Console",
     "github": "GitHub"
   },
   "hero": {
@@ -16,8 +17,9 @@
     "cta": "Download Now",
     "cta_win": "Windows",
     "cta_mac": "macOS",
+    "cta_linux": "Linux (one-line install)",
     "version": "v0.1.0",
-    "requirements": "Windows 10+ · macOS 12+ (Intel / Apple Silicon)",
+    "requirements": "Windows 10+ · macOS 12+ (Intel / Apple Silicon) · Debian 11+ / Ubuntu 20.04+ (amd64 / arm64)",
     "qq_group": "QQ Help Group",
     "qq_group_number": "295838092"
   },
@@ -37,7 +39,7 @@
     },
     "native": {
       "title": "Native Performance",
-      "desc": "Leverages built-in virtualization on Windows and macOS — no third-party software needed. Fast and lightweight."
+      "desc": "Built directly on native virtualization across Windows / macOS / Linux (WHVP / Hypervisor.framework / KVM). No third-party software needed — fast and lightweight."
     },
     "virtio": {
       "title": "Seamless Experience",
@@ -52,7 +54,7 @@
     "title": "Get Started in 3 Steps",
     "step1": {
       "title": "Download & Install",
-      "desc": "Download TenBox and install it like any other app. Works on Windows and macOS."
+      "desc": "Install the Windows / macOS package like any other app, or run a single curl command on Linux."
     },
     "step2": {
       "title": "Pick an Agent",
@@ -61,6 +63,30 @@
     "step3": {
       "title": "Start Using",
       "desc": "It launches automatically — open it up and start working with your Agent right away."
+    }
+  },
+  "install": {
+    "title": "Download & Install",
+    "subtitle": "Pick your platform — installation takes just a few minutes.",
+    "windows": {
+      "title": "Windows",
+      "desc": "Windows 10/11 with Windows Hypervisor Platform (WHVP) enabled.",
+      "cta": "Download installer"
+    },
+    "macos": {
+      "title": "macOS",
+      "desc": "macOS 12+, with native support for both Apple Silicon and Intel.",
+      "cta": "Download .dmg"
+    },
+    "linux": {
+      "title": "Linux",
+      "desc": "Debian 11+ / Ubuntu 20.04+ / Raspberry Pi OS 11+ on amd64 / arm64 (validated on Raspberry Pi 5). Requires glibc 2.31+ and /dev/kvm.",
+      "command": "curl -fsSL https://tenbox.ai/install.sh | sh",
+      "footnote": "After install, a pairing URL is printed — open the",
+      "footnote_link": "TenBox Cloud Console",
+      "footnote_after": "to claim the host and manage it remotely.",
+      "copy": "Copy",
+      "copied": "Copied"
     }
   },
   "footer": {

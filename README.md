@@ -35,7 +35,26 @@ Under the hood, TenBox is a cross-platform Virtual Machine Monitor (VMM) with a 
 - **Platform-specific machine models** — shared VMM core with x86_64 (Local APIC / I/O APIC) and aarch64 (GICv3) guest support
 - **LLM proxy** — built-in OpenAI-compatible HTTP proxy that maps guest requests to configurable upstream providers, with per-request logging
 
-## Quick Start
+## Install
+
+### Linux (Debian 11+ / Ubuntu 20.04+ / Raspberry Pi OS 11+, amd64 / arm64)
+
+```bash
+curl -fsSL https://tenbox.ai/install.sh | sh
+```
+
+Requires glibc 2.31+ and `/dev/kvm`. The installer registers the TenBox apt
+repo, installs the `tenbox` deb, and enables `tenboxd.service`. After install,
+a pairing URL is printed to journalctl — open it (or visit
+https://my.tenbox.ai/) to claim the host. Tested on x86_64 PCs and Raspberry
+Pi 5; other arm64 boards may work but are not yet validated.
+
+### Windows / macOS
+
+Download the latest installer from [tenbox.ai](https://tenbox.ai/) or the
+[GitHub Releases](https://github.com/78/tenbox/releases) page.
+
+## Build from source
 
 ### Prerequisites
 
@@ -56,7 +75,7 @@ Under the hood, TenBox is a cross-platform Virtual Machine Monitor (VMM) with a 
 #### Linux (VM runtime only)
 
 - A Linux host with `/dev/kvm` available to the current user (group `kvm` on most distros)
-- x86_64 or arm64 (including Raspberry Pi 4/5 running a 64-bit OS)
+- x86_64 or arm64 (validated on Raspberry Pi 5 with a 64-bit OS; other arm64 boards may work but are not yet validated)
 - GCC 12+ / Clang 15+ with C++20 support
 - CMake 3.21+
 - Docker (recommended for building guest images)

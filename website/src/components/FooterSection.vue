@@ -8,9 +8,10 @@
 
 <style scoped>
 .footer {
-  background: var(--color-bg-dark);
-  color: rgba(241, 245, 249, 0.6);
+  background: var(--color-bg-alt);
+  color: var(--color-text-light);
   padding: 40px 0;
+  border-top: 1px solid var(--color-border);
 }
 
 .footer-inner {
