@@ -18,6 +18,7 @@ extern "C" {
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <pthread.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
@@ -782,6 +783,7 @@ bool CloudTunnel::ReadJson(nlohmann::json* value) {
 }
 
 void CloudTunnel::ThreadMain() {
+    pthread_setname_np(pthread_self(), "cloud-tunnel");
     // Exponential backoff for reconnect attempts. Caps at 60s so a flaky
     // network or temporary cloud outage does not keep the journal at the
     // previous 1-attempt-per-second cadence (which on a host with broken
@@ -1382,6 +1384,7 @@ nlohmann::json CloudTunnel::StartImageDownload(const nlohmann::json& payload) {
     }
 
     std::thread([this, image, job_id, images_dir]() {
+        pthread_setname_np(pthread_self(), "img-download");
         const std::string cache_dir = image_source::ImageCacheDir(images_dir, image);
         const auto started = std::chrono::steady_clock::now();
         // Browser-side progress is rate-limited to ~2Hz to avoid flooding the
@@ -1633,6 +1636,7 @@ std::shared_ptr<WebRtcPeer> CloudTunnel::CreateRemotePeer(
                          session_id.c_str(), vm_id.c_str(), reason.c_str());
             std::fflush(stdout);
             std::thread([this, session_id, vm_id, reason]() {
+                pthread_setname_np(pthread_self(), "webrtc-close");
                 if (fd_ >= 0) {
                     (void)SendJson({
                         {"id", GenerateUuid()},
@@ -2044,6 +2048,7 @@ void CloudTunnel::PublishRemoteCursor(const std::string& vm_id, nlohmann::json c
 }
 
 void CloudTunnel::TickMain() {
+    pthread_setname_np(pthread_self(), "cloud-tick");
     // Push host memory/disk/load and per-VM disk/RSS on a slow schedule so
     // tenboxd stays light: host metrics are cheap; VmResourcesSnapshot walks
     // each VM directory for disk usage and is intentionally less frequent.

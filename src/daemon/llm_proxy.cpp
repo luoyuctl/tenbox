@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <pthread.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -405,6 +406,7 @@ void LlmProxyService::UpdateSettings(const LlmProxySettings& settings) {
 }
 
 void LlmProxyService::ServerThread() {
+    pthread_setname_np(pthread_self(), "llm-listener");
     while (running_.load()) {
         sockaddr_in peer{};
         socklen_t peer_len = sizeof(peer);
@@ -429,6 +431,7 @@ void LlmProxyService::ServerThread() {
 }
 
 void LlmProxyService::HandleClient(int client_fd) {
+    pthread_setname_np(pthread_self(), "llm-handler");
     bool keep_alive = true;
     while (keep_alive && running_.load()) {
         std::string method;

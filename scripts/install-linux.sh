@@ -21,11 +21,13 @@
 # `apt-get install tenbox=<version>` at the matching point release.
 #
 # Environment overrides (all optional):
-#   TENBOX_CLOUD_URL       Cloud tunnel URL (default: wss://my.tenbox.ai/api/device-tunnel)
-#   TENBOX_DATA_DIR        Daemon data dir (default: /var/lib/tenbox)
-#   TENBOX_APT_REPO_URL    apt repo base URL (default: https://my.tenbox.ai/repo)
-#   TENBOX_APT_SUITE       apt suite name (default: stable)
-#   TENBOX_RELEASE_TAG     pin to vX.Y.Z (default: latest available)
+#   TENBOX_CLOUD_URL               Cloud tunnel URL (default: wss://my.tenbox.ai/api/device-tunnel)
+#   TENBOX_DATA_DIR                Daemon data dir (default: /var/lib/tenbox)
+#   TENBOX_APT_REPO_URL            apt repo base URL (default: https://my.tenbox.ai/repo)
+#   TENBOX_APT_SUITE               apt suite name (default: stable)
+#   TENBOX_RELEASE_TAG             pin to vX.Y.Z (default: latest available)
+#   TENBOX_WEBRTC_WORKER_THREADS   libdatachannel thread pool size (default: 4; 0 = hardware_concurrency)
+#   TENBOX_ENCODER_THREADS         FFmpeg encoder threads per session (default: 1; 0 = auto)
 
 set -eu
 
@@ -223,6 +225,15 @@ write_env_file() {
 # Re-run the installer (or re-create this file) to restore defaults.
 TENBOX_CLOUD_URL=$cloud_url
 TENBOX_DATA_DIR=$data_dir
+
+# libdatachannel RTC worker thread pool size (default: 4).
+# Set to 0 to use hardware_concurrency().
+TENBOX_WEBRTC_WORKER_THREADS=4
+
+# FFmpeg encoder thread count per WebRTC session (default: 1).
+# Single-threaded minimises per-frame latency for remote desktop.
+# Set to 0 to let FFmpeg choose automatically.
+TENBOX_ENCODER_THREADS=1
 EOF
     chmod 0644 /etc/tenbox/tenboxd.env
     install -d -m 0755 "$data_dir"

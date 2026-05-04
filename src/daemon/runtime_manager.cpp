@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <signal.h>
+#include <pthread.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -153,6 +154,7 @@ RuntimeManager::~RuntimeManager() {
 }
 
 void RuntimeManager::RebootWorkerLoop() {
+    pthread_setname_np(pthread_self(), "vm-reboot");
     while (true) {
         std::string vm_id;
         {
@@ -567,6 +569,7 @@ bool RuntimeManager::ShutdownVm(const std::string& vm_id, std::string* error) {
 }
 
 void RuntimeManager::AcceptRuntime(std::shared_ptr<RuntimeSession> session) {
+    pthread_setname_np(pthread_self(), "vm-accept");
     auto conn = session->control_server->Accept();
     if (!conn.IsValid()) return;
     session->runtime_conn = std::make_unique<ipc::UnixSocketConnection>(std::move(conn));
@@ -575,6 +578,7 @@ void RuntimeManager::AcceptRuntime(std::shared_ptr<RuntimeSession> session) {
 }
 
 void RuntimeManager::ReadRuntime(std::shared_ptr<RuntimeSession> session) {
+    pthread_setname_np(pthread_self(), "vm-ipc");
     while (session->running && session->runtime_conn && session->runtime_conn->IsValid()) {
         const std::string header = session->runtime_conn->ReadLine();
         if (header.empty()) break;
@@ -593,6 +597,7 @@ void RuntimeManager::ReadRuntime(std::shared_ptr<RuntimeSession> session) {
 }
 
 void RuntimeManager::ReadLogs(std::shared_ptr<RuntimeSession> session) {
+    pthread_setname_np(pthread_self(), "vm-logs");
     std::string pending;
     char buf[4096];
     while (true) {
@@ -1533,6 +1538,7 @@ void RuntimeManager::BroadcastConsole(std::shared_ptr<RuntimeSession> session, c
 void RuntimeManager::ReadConsoleClient(
     std::shared_ptr<RuntimeSession> session,
     std::shared_ptr<ipc::UnixSocketConnection> client) {
+    pthread_setname_np(pthread_self(), "vm-console");
     while (client && client->IsValid()) {
         std::string line = client->ReadLine();
         if (line.empty()) break;

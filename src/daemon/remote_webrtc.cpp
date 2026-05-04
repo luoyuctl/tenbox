@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <cstdio>
+#include <charconv>
 #include <cstring>
 #include <deque>
 #include <exception>
@@ -18,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <pthread.h>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -301,6 +303,15 @@ void EnsureLibDatachannelLoggerInstalled() {
             std::fprintf(stdout, "[%s] libdatachannel: %s\n", tag, message.c_str());
             std::fflush(stdout);
         });
+        // Default is hardware_concurrency() which is excessive for a daemon
+        // handling a handful of concurrent remote desktop sessions.
+        // Override with TENBOX_WEBRTC_WORKER_THREADS=0 to restore the default.
+        unsigned int pool_size = 4;
+        if (const char* v = std::getenv("TENBOX_WEBRTC_WORKER_THREADS"); v && v[0] != '\0') {
+            const auto result = std::from_chars(v, v + std::strlen(v), pool_size);
+            if (result.ec != std::errc{}) pool_size = 4;
+        }
+        rtc::SetThreadPoolSize(pool_size);
     });
 }
 
@@ -1145,6 +1156,7 @@ private:
     }
 
     void AudioPumpMain() {
+        pthread_setname_np(pthread_self(), "webrtc-audio");
         constexpr uint32_t kSampleRate = 48000;
         constexpr uint32_t kFrameMs = 20;
         constexpr size_t kFrameSamplesPerChannel = kSampleRate * kFrameMs / 1000;
@@ -1277,6 +1289,7 @@ private:
     }
 
     void VideoPumpMain() {
+        pthread_setname_np(pthread_self(), "webrtc-video");
         FfmpegH264VideoEncoder encoder;
         VideoEncoderConfig config;
         bool encoder_open = false;

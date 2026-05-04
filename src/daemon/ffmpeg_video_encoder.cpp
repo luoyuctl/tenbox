@@ -8,6 +8,8 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <charconv>
+#include <cstdlib>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -74,6 +76,16 @@ void ConfigureCommonH264Context(AVCodecContext* codec, const VideoEncoderConfig&
     codec->rc_buffer_size = static_cast<int>(std::max<uint32_t>(config.bitrate_bps / 2, 1));
     codec->gop_size = static_cast<int>(std::max<uint32_t>(config.framerate * 240, 1));
     codec->max_b_frames = 0;
+    // Single-threaded encoding minimizes per-frame latency for remote desktop.
+    // Multi-thread parallelism adds a frame pipeline delay with no throughput
+    // benefit at the low resolutions / framerates used here.
+    // Override with TENBOX_ENCODER_THREADS=0 to let FFmpeg choose automatically.
+    int thread_count = 1;
+    if (const char* v = std::getenv("TENBOX_ENCODER_THREADS"); v && v[0] != '\0') {
+        const auto result = std::from_chars(v, v + std::strlen(v), thread_count);
+        if (result.ec != std::errc{}) thread_count = 1;
+    }
+    codec->thread_count = thread_count;
     codec->pix_fmt = AvPixelFormatFor(config.input_format);
     codec->color_primaries = AVCOL_PRI_BT709;
     codec->color_trc = AVCOL_TRC_IEC61966_2_1;

@@ -13,6 +13,7 @@
 #include <grp.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <pthread.h>
 #include <unistd.h>
 #endif
 
@@ -143,6 +144,7 @@ void RpcServer::Stop() {
 }
 
 void RpcServer::HandleClient(ipc::UnixSocketConnection client) {
+    pthread_setname_np(pthread_self(), "rpc-handler");
     const std::string line = client.ReadLine();
     if (line.empty()) return;
     auto request = nlohmann::json::parse(line, nullptr, false);
