@@ -770,13 +770,7 @@ UV_LINK_MODE=copy uv pip install qrcode[pil]
 #  - tinker-atropos (Manual Install Step 4): only used by the RL training
 #    toolset, which requires TINKER_API_KEY + WANDB_API_KEY at runtime.
 #    We don't do model fine-tuning in TenBox.
-#  - \`npm install\` (Manual Install Step 5): installs \`agent-browser\`, a
-#    Node.js CLI that wraps its own bundled Playwright Chromium (~300MB).
-#    Hermes has a CDP fallback that can auto-launch the system \`chromium\`
-#    package with \`--remote-debugging-port\`, so we stay on that path.
-#    If agent-browser is ever needed, run inside the VM:
-#        cd ~/.hermes/hermes-agent && npm install \\
-#            && npx playwright install chromium
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g agent-browser
 
 ln -sf "\$INSTALL_DIR/venv/bin/hermes" /usr/local/bin/hermes
 ln -sf "\$INSTALL_DIR/venv/bin/hermes-agent" /usr/local/bin/hermes-agent
@@ -827,6 +821,7 @@ OPENAI_API_KEY=tenbox
 
 # Browser
 AGENT_BROWSER_HEADED=true
+AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENVEOF
     chown -R $USER_NAME:$USER_NAME "\$HERMES_DIR"
 fi
@@ -836,6 +831,13 @@ model:
   default: "default"
   provider: "custom"
   base_url: "http://10.0.2.3/v1"
+
+terminal:
+  backend: local
+
+approvals:
+  mode: off
+  timeout: 60
 
 # Stream tokens from the provider so upstream nginx proxies (default
 # proxy_read_timeout = 60s) don't return 504 while the model is
