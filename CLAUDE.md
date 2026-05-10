@@ -93,6 +93,9 @@ Win/macOS: tenbox-manager ──IPC v1──► tenbox-vm-runtime (WHVP / HVF)
 - **Agent data backups**: `TenBox.app` writes host-managed backups to `~/Library/Application Support/TenBox/AgentBackups/<vm-id>/<agent>` and retains the latest 5 packages.
 - **Agent health checks**: `TenBox.app` runs health, restart, model test, config reset, and diagnostics through console-injected commands. Repair actions must create a host-managed Agent data backup first.
 - **macOS Agent data UI**: `TenBox.app` exposes Agent data export/import from the VM toolbar/menu while a VM is running. It must not depend on preinstalled guest TenBox scripts.
+- **macOS Agent data shares**: Agent tool temporary shared folders are runtime-only; do not persist operation or backup share tags into VM config.
+- **macOS Agent share cleanup**: drop persisted `tenbox-agent-ops-*` and `tenbox-agent-backups-*` entries on config load/startup to clean old builds.
+- **macOS Agent data panels**: show export/import file panels asynchronously from SwiftUI sheets; do not use blocking `runModal()` from button handlers.
 - **macOS Agent backup UI**: `TenBox.app` exposes backup status, immediate backup, and restore latest backup actions. Host-triggered backups use `~/Library/Application Support/TenBox/AgentBackups/<vm-id>` as the durable shared folder.
 - **macOS Agent health UI**: `TenBox.app` exposes health check, restart, model test, config reset, and diagnostics actions while a VM is running. Repair actions run through app-generated shell commands so no image rebuild is required.
 - **macOS console commands**: Agent tool commands fail quickly if the VM shell does not echo the begin marker, and they wait for the temporary shared folder to become writable before reading or writing packages.
