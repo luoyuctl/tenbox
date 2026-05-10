@@ -62,3 +62,29 @@ tenbox-agent-profile import --agent hermes --input /mnt/shared/agent-data.tar.zs
 The import path verifies the archive manifest and checksums, rejects cross-agent
 imports, backs up existing data to `*.pre-import-*`, and then restores ownership
 and permissions for the `tenbox` user.
+
+## Automatic Agent Data Backups
+
+Hermes and OpenClaw images also include `tenbox-agent-backup`, which reuses the
+profile package format instead of creating a second backup format.
+
+```sh
+tenbox-agent-backup snapshot --agent hermes --vm-id <vm-id>
+tenbox-agent-backup status --agent hermes --vm-id <vm-id>
+tenbox-agent-backup restore --agent hermes --vm-id <vm-id>
+```
+
+By default backups are written under:
+
+```text
+/mnt/shared/tenbox-agent-backups/<vm-id>/<agent>/
+├── agent-data-YYYYMMDDHHMMSS.tar.zst
+├── agent-data-YYYYMMDDHHMMSS.tar.zst.manifest.json
+└── status.json
+```
+
+The default retention is the latest 5 packages per VM and Agent. The snapshot
+path estimates source size before export and stops with a clear `space_low`
+status when the host-side shared folder does not have enough free space. Restore
+uses `tenbox-agent-profile import`, so existing Agent data is still protected by
+the `*.pre-import-*` backup before replacement.

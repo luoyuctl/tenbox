@@ -891,7 +891,6 @@ OVERRIDE
 
 mkdir -p "\$UNIT_DIR/default.target.wants"
 ln -sf ../hermes-gateway.service "\$UNIT_DIR/default.target.wants/hermes-gateway.service"
-
 chown -R $USER_NAME:$USER_NAME \$USER_HOME/.config
 
 mkdir -p /var/lib/systemd/linger
@@ -1018,6 +1017,14 @@ EOF
 
 do_config_virtiofs() {
     sudo chroot "$MOUNT_DIR" /bin/bash -e << 'EOF'
+cp /tmp/rootfs-scripts/tenbox-agent-profile /usr/local/bin/
+chmod +x /usr/local/bin/tenbox-agent-profile
+cp /tmp/rootfs-scripts/tenbox-agent-backup /usr/local/bin/
+chmod +x /usr/local/bin/tenbox-agent-backup
+cp /tmp/rootfs-services/tenbox-agent-backup.service /etc/systemd/system/
+cp /tmp/rootfs-services/tenbox-agent-backup.timer /etc/systemd/system/
+systemctl enable tenbox-agent-backup.timer 2>/dev/null || true
+
 if [ -f /etc/systemd/system/virtiofs-automount.service ]; then
     echo "  Virtio-FS already configured"
     exit 0
@@ -1027,8 +1034,6 @@ cp /tmp/rootfs-scripts/virtiofs-automount /usr/local/bin/
 chmod +x /usr/local/bin/virtiofs-automount
 cp /tmp/rootfs-scripts/virtiofs-desktop-sync /usr/local/bin/
 chmod +x /usr/local/bin/virtiofs-desktop-sync
-cp /tmp/rootfs-scripts/tenbox-agent-profile /usr/local/bin/
-chmod +x /usr/local/bin/tenbox-agent-profile
 cp /tmp/rootfs-services/virtiofs-automount.service /etc/systemd/system/
 systemctl enable virtiofs-automount.service 2>/dev/null || true
 cp /tmp/rootfs-services/virtiofs-desktop-sync.service /etc/systemd/system/
