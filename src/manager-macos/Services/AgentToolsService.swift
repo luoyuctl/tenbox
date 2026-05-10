@@ -140,6 +140,41 @@ final class AgentToolsService {
                          completion: completion)
     }
 
+    func healthStatus(vm: VmInfo, session: VmSession, appState: AppState, agent: AgentKind,
+                      completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        runHealthCommand(vm: vm, session: session, appState: appState, agent: agent,
+                         command: "status", successMessage: "健康状态已更新",
+                         completion: completion)
+    }
+
+    func restartAgent(vm: VmInfo, session: VmSession, appState: AppState, agent: AgentKind,
+                      completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        runHealthCommand(vm: vm, session: session, appState: appState, agent: agent,
+                         command: "restart", successMessage: "已重新启动 Agent",
+                         completion: completion)
+    }
+
+    func testModel(vm: VmInfo, session: VmSession, appState: AppState, agent: AgentKind,
+                   completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        runHealthCommand(vm: vm, session: session, appState: appState, agent: agent,
+                         command: "test-model", successMessage: "模型连接已测试",
+                         completion: completion)
+    }
+
+    func resetAgentConfig(vm: VmInfo, session: VmSession, appState: AppState, agent: AgentKind,
+                          completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        runHealthCommand(vm: vm, session: session, appState: appState, agent: agent,
+                         command: "reset-config", successMessage: "已重置 Agent 配置",
+                         completion: completion)
+    }
+
+    func exportDiagnostics(vm: VmInfo, session: VmSession, appState: AppState, agent: AgentKind,
+                           completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        runHealthCommand(vm: vm, session: session, appState: appState, agent: agent,
+                         command: "diagnostics", successMessage: "已导出诊断包",
+                         completion: completion)
+    }
+
     private func runBackupCommand(vm: VmInfo, session: VmSession, appState: AppState, agent: AgentKind,
                                   command: String, successMessage: String,
                                   completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
@@ -152,6 +187,33 @@ final class AgentToolsService {
                 case .success(let commandResult):
                     guard commandResult.exitCode == 0 else {
                         completion(.failure(Self.makeError(commandResult.output.isEmpty ? "Agent backup command failed" : commandResult.output)))
+                        return
+                    }
+                    completion(.success(AgentToolResult(
+                        message: successMessage,
+                        output: commandResult.output
+                    )))
+                case .failure(let error):
+                    completion(.failure(error))
+                }
+            }
+        } failure: { error in
+            completion(.failure(error))
+        }
+    }
+
+    private func runHealthCommand(vm: VmInfo, session: VmSession, appState: AppState, agent: AgentKind,
+                                  command: String, successMessage: String,
+                                  completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        withBackupShare(vmId: vm.id, appState: appState) { share, cleanup in
+            let guestDir = "/mnt/shared/\(share.tag)"
+            let shellCommand = "TENBOX_SHARED_DIR=\(Self.shellQuote(guestDir)) TENBOX_VM_ID=\(Self.shellQuote(vm.id)) tenbox-agent-health \(command) --agent \(agent.rawValue)"
+            session.runShellCommand(shellCommand, timeout: 360) { result in
+                cleanup()
+                switch result {
+                case .success(let commandResult):
+                    guard commandResult.exitCode == 0 else {
+                        completion(.failure(Self.makeError(commandResult.output.isEmpty ? "Agent health command failed" : commandResult.output)))
                         return
                     }
                     completion(.success(AgentToolResult(

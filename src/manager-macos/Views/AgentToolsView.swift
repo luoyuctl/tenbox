@@ -81,6 +81,50 @@ struct AgentToolsSheet: View {
                 .disabled(!canRun)
             }
 
+            Divider()
+
+            Text("Health")
+                .font(.headline)
+
+            HStack(spacing: 10) {
+                Button {
+                    checkHealth()
+                } label: {
+                    Label("Check", systemImage: "stethoscope")
+                }
+                .disabled(!canRun)
+
+                Button {
+                    restartAgent()
+                } label: {
+                    Label("Restart", systemImage: "arrow.clockwise")
+                }
+                .disabled(!canRun)
+
+                Button {
+                    testModel()
+                } label: {
+                    Label("Test Model", systemImage: "bolt.horizontal")
+                }
+                .disabled(!canRun)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    resetConfig()
+                } label: {
+                    Label("Reset Config", systemImage: "slider.horizontal.2.square")
+                }
+                .disabled(!canRun)
+
+                Button {
+                    exportDiagnostics()
+                } label: {
+                    Label("Diagnostics", systemImage: "doc.zipper")
+                }
+                .disabled(!canRun)
+            }
+
             if isRunningOperation {
                 ProgressView()
                     .controlSize(.small)
@@ -106,7 +150,7 @@ struct AgentToolsSheet: View {
             Spacer(minLength: 0)
         }
         .padding()
-        .frame(width: 520, height: 390)
+        .frame(width: 560, height: 520)
     }
 
     private func exportProfile() {
@@ -152,6 +196,41 @@ struct AgentToolsSheet: View {
         guard let vm = vm else { return }
         runOperation {
             appState.restoreLatestAgentBackup(vmId: vm.id, agent: selectedAgent, completion: $0)
+        }
+    }
+
+    private func checkHealth() {
+        guard let vm = vm else { return }
+        runOperation {
+            appState.agentHealthStatus(vmId: vm.id, agent: selectedAgent, completion: $0)
+        }
+    }
+
+    private func restartAgent() {
+        guard let vm = vm else { return }
+        runOperation {
+            appState.restartAgent(vmId: vm.id, agent: selectedAgent, completion: $0)
+        }
+    }
+
+    private func testModel() {
+        guard let vm = vm else { return }
+        runOperation {
+            appState.testAgentModel(vmId: vm.id, agent: selectedAgent, completion: $0)
+        }
+    }
+
+    private func resetConfig() {
+        guard let vm = vm else { return }
+        runOperation {
+            appState.resetAgentConfig(vmId: vm.id, agent: selectedAgent, completion: $0)
+        }
+    }
+
+    private func exportDiagnostics() {
+        guard let vm = vm else { return }
+        runOperation {
+            appState.exportAgentDiagnostics(vmId: vm.id, agent: selectedAgent, completion: $0)
         }
     }
 

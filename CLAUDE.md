@@ -93,6 +93,7 @@ Win/macOS: tenbox-manager ──IPC v1──► tenbox-vm-runtime (WHVP / HVF)
 - **Agent health checks**: Hermes/OpenClaw images include `tenbox-agent-health status|restart|test-model|reset-config|diagnostics`; repair actions must snapshot Agent data first and keep user-facing messages in "Agent/model/browser/disk" terms.
 - **macOS Agent data UI**: `TenBox.app` exposes Agent data export/import from the VM toolbar/menu while a VM is running. It uses a temporary shared folder plus the console channel to call `tenbox-agent-profile` inside the guest.
 - **macOS Agent backup UI**: `TenBox.app` exposes backup status, immediate backup, and restore latest backup actions. Host-triggered backups use `~/Library/Application Support/TenBox/AgentBackups/<vm-id>` as the durable shared folder.
+- **macOS Agent health UI**: `TenBox.app` exposes health check, restart, model test, config reset, and diagnostics actions while a VM is running. Repair actions run through `tenbox-agent-health` so guest-side pre-repair snapshots stay enforced.
 - **Static build** (`TENBOX_STATIC_FFMPEG=ON`) requires `/opt/tenbox-deps` (only present inside the CI/packaging container). Dev builds use system shared libs — keep `ON` off by default.
 - **Release**: `docs/release.md` — VERSION bump → commit → push → tag → push tag. Always push commit before tag.
 

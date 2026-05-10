@@ -510,6 +510,61 @@ class AppState: ObservableObject {
                                        completion: completion)
     }
 
+    func agentHealthStatus(vmId: String, agent: AgentKind,
+                           completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        guard let vm = vms.first(where: { $0.id == vmId }) else {
+            completion(.failure(ConsoleCommandError("VM not found")))
+            return
+        }
+        let session = getOrCreateSession(for: vmId)
+        agentTools.healthStatus(vm: vm, session: session, appState: self, agent: agent,
+                                completion: completion)
+    }
+
+    func restartAgent(vmId: String, agent: AgentKind,
+                      completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        guard let vm = vms.first(where: { $0.id == vmId }) else {
+            completion(.failure(ConsoleCommandError("VM not found")))
+            return
+        }
+        let session = getOrCreateSession(for: vmId)
+        agentTools.restartAgent(vm: vm, session: session, appState: self, agent: agent,
+                                completion: completion)
+    }
+
+    func testAgentModel(vmId: String, agent: AgentKind,
+                        completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        guard let vm = vms.first(where: { $0.id == vmId }) else {
+            completion(.failure(ConsoleCommandError("VM not found")))
+            return
+        }
+        let session = getOrCreateSession(for: vmId)
+        agentTools.testModel(vm: vm, session: session, appState: self, agent: agent,
+                             completion: completion)
+    }
+
+    func resetAgentConfig(vmId: String, agent: AgentKind,
+                          completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        guard let vm = vms.first(where: { $0.id == vmId }) else {
+            completion(.failure(ConsoleCommandError("VM not found")))
+            return
+        }
+        let session = getOrCreateSession(for: vmId)
+        agentTools.resetAgentConfig(vm: vm, session: session, appState: self, agent: agent,
+                                    completion: completion)
+    }
+
+    func exportAgentDiagnostics(vmId: String, agent: AgentKind,
+                                completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        guard let vm = vms.first(where: { $0.id == vmId }) else {
+            completion(.failure(ConsoleCommandError("VM not found")))
+            return
+        }
+        let session = getOrCreateSession(for: vmId)
+        agentTools.exportDiagnostics(vm: vm, session: session, appState: self, agent: agent,
+                                     completion: completion)
+    }
+
     // MARK: - LLM Proxy settings
 
     private var settingsPath: String {
