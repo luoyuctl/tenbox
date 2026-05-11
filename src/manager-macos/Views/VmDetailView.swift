@@ -269,10 +269,11 @@ class VmSession: ObservableObject {
             )
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
 
-            if !self.ipcClient.sendGuestExec(command: command, user: "tenbox", requestId: requestId, timeoutMs: timeoutMs) {
-                timeoutWorkItem.cancel()
-                self.pendingGuestExecCommands.removeValue(forKey: requestId)
-                completion(.failure(ConsoleCommandError("Failed to send guest agent command")))
+            self.ipcClient.sendGuestExecAsync(command: command, user: "tenbox", requestId: requestId, timeoutMs: timeoutMs) { [weak self] sent in
+                guard let self = self, !sent else { return }
+                guard let pending = self.pendingGuestExecCommands.removeValue(forKey: requestId) else { return }
+                pending.timeoutWorkItem.cancel()
+                pending.completion(.failure(ConsoleCommandError("Failed to send guest agent command")))
             }
         }
     }

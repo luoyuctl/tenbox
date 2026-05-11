@@ -24,6 +24,72 @@ struct AgentToolResult {
     let output: String
 }
 
+enum AgentSkillConflictStrategy: String, CaseIterable, Identifiable {
+    case skip
+    case overwrite
+    case rename
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .skip: return "保留 Hermes"
+        case .overwrite: return "覆盖 Hermes"
+        case .rename: return "重命名导入"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .skip: return "遇到同名技能时保留目标 Hermes 版本"
+        case .overwrite: return "遇到同名技能时使用 OpenClaw 版本覆盖"
+        case .rename: return "遇到同名技能时将 OpenClaw 版本重命名导入"
+        }
+    }
+}
+
+struct AgentMigrationOptions: Equatable {
+    var skillConflictStrategy: AgentSkillConflictStrategy = .skip
+    var workspaceTarget: String = "/home/tenbox/.hermes/workspace/openclaw-migrated"
+}
+
+enum AgentMigrationStep: String {
+    case backup
+    case exportSource
+    case dryRun
+    case migrate
+    case restart
+    case health
+    case complete
+
+    var title: String {
+        switch self {
+        case .backup: return "备份 Hermes"
+        case .exportSource: return "导出 OpenClaw"
+        case .dryRun: return "检查迁移计划"
+        case .migrate: return "执行迁移"
+        case .restart: return "重启 Hermes"
+        case .health: return "健康检查"
+        case .complete: return "完成"
+        }
+    }
+}
+
+struct AgentMigrationProgress: Identifiable, Equatable {
+    let id = UUID()
+    let step: AgentMigrationStep
+    let message: String
+    let detail: String?
+    let date: Date
+
+    init(step: AgentMigrationStep, message: String, detail: String? = nil, date: Date = Date()) {
+        self.step = step
+        self.message = message
+        self.detail = detail
+        self.date = date
+    }
+}
+
 struct AgentBackupPackage: Identifiable, Equatable {
     let url: URL
     let modifiedAt: Date
@@ -330,10 +396,19 @@ final class AgentToolsService {
     func migrateOpenClawToHermes(sourceVm: VmInfo, sourceSession: VmSession,
                                  targetVm: VmInfo, targetSession: VmSession,
                                  appState: AppState,
+                                 options: AgentMigrationOptions = AgentMigrationOptions(),
                                  keepCount: Int = AgentBackupSchedule.defaultKeepCount,
+                                 progress: @escaping (AgentMigrationProgress) -> Void = { _ in },
                                  completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        let emit: (AgentMigrationStep, String, String?) -> Void = { step, message, detail in
+            DispatchQueue.main.async {
+                progress(AgentMigrationProgress(step: step, message: message, detail: detail))
+            }
+        }
+
         do {
             let backupPackage = try backupPackageURL(vmId: targetVm.id, agent: .hermes)
+            let reportURL = try migrationReportURL(vmId: targetVm.id, agent: .hermes)
             withBackupShare(vmId: targetVm.id, appState: appState) { backupShare, backupCleanup in
                 withOperationShare(vmIds: [sourceVm.id, targetVm.id], appState: appState) { share, cleanup in
                     let cleanupAll = {
@@ -341,12 +416,14 @@ final class AgentToolsService {
                         backupCleanup()
                     }
                     let guestBackup = "/mnt/shared/\(backupShare.tag)/hermes/\(backupPackage.lastPathComponent)"
+                    let guestReport = "/mnt/shared/\(backupShare.tag)/hermes/\(reportURL.lastPathComponent)"
                     let backupCommand = Self.withSharedFolderReady(
                         tag: backupShare.tag,
                         body: "mkdir -p \(Self.shellQuote("/mnt/shared/\(backupShare.tag)/hermes"))\n" +
                             Self.profileExportCommand(agent: .hermes, outputPath: guestBackup, scope: .backup)
                     )
 
+                    emit(.backup, "正在创建目标 Hermes 迁移前备份", backupPackage.path)
                     targetSession.runGuestAgentCommand(backupCommand, timeout: 420) { backupResult in
                         switch backupResult {
                         case .success(let backupCommandResult):
@@ -361,6 +438,7 @@ final class AgentToolsService {
                                 tag: share.tag,
                                 body: Self.openClawMigrationSourceExportCommand(outputPath: archivePath)
                             )
+                            emit(.exportSource, "正在从来源 VM 导出 OpenClaw 用户数据", sourceVm.name)
                             sourceSession.runGuestAgentCommand(exportCommand, timeout: 420) { sourceResult in
                                 switch sourceResult {
                                 case .success(let sourceCommandResult):
@@ -370,24 +448,65 @@ final class AgentToolsService {
                                         return
                                     }
 
-                                    let migrateCommand = Self.withSharedFolderReady(
+                                    let dryRunCommand = Self.withSharedFolderReady(
                                         tag: share.tag,
-                                        body: Self.openClawToHermesMigrationCommand(inputPath: archivePath)
+                                        body: Self.openClawToHermesDryRunCommand(
+                                            inputPath: archivePath,
+                                            reportPath: guestReport,
+                                            options: options
+                                        )
                                     )
-                                    targetSession.runGuestAgentCommand(migrateCommand, timeout: 600) { targetResult in
-                                        cleanupAll()
-                                        switch targetResult {
-                                        case .success(let targetCommandResult):
-                                            guard targetCommandResult.exitCode == 0 else {
-                                                completion(.failure(Self.makeError(targetCommandResult.output.isEmpty ? "OpenClaw 到 Hermes 迁移失败" : targetCommandResult.output)))
+                                    emit(.dryRun, "正在生成官方 dry-run 迁移计划", "冲突策略：\(options.skillConflictStrategy.displayName)")
+                                    targetSession.runGuestAgentCommand(dryRunCommand, timeout: 420) { dryRunResult in
+                                        switch dryRunResult {
+                                        case .success(let dryRunCommandResult):
+                                            guard dryRunCommandResult.exitCode == 0 else {
+                                                cleanupAll()
+                                                completion(.failure(Self.makeError(dryRunCommandResult.output.isEmpty ? "OpenClaw 到 Hermes 迁移预检失败" : dryRunCommandResult.output)))
                                                 return
                                             }
-                                            self.rotateBackups(vmId: targetVm.id, agent: .hermes, keep: keepCount)
-                                            completion(.success(AgentToolResult(
-                                                message: "已完成 OpenClaw 到 Hermes 迁移",
-                                                output: "迁移前备份：\(backupPackage.path)\n来源 VM：\(sourceVm.name)\n目标 VM：\(targetVm.name)\n\(targetCommandResult.output)"
-                                            )))
+                                            emit(.migrate, "dry-run 已通过，正在执行正式迁移", Self.compactMigrationOutput(dryRunCommandResult.output))
+                                            let migrateCommand = Self.withSharedFolderReady(
+                                                tag: share.tag,
+                                                body: Self.openClawToHermesMigrationCommand(
+                                                    inputPath: archivePath,
+                                                    reportPath: guestReport,
+                                                    options: options
+                                                )
+                                            )
+                                            targetSession.runGuestAgentCommand(migrateCommand, timeout: 600) { targetResult in
+                                                cleanupAll()
+                                                switch targetResult {
+                                                case .success(let targetCommandResult):
+                                                    guard targetCommandResult.exitCode == 0 else {
+                                                        completion(.failure(Self.makeError(targetCommandResult.output.isEmpty ? "OpenClaw 到 Hermes 迁移失败" : targetCommandResult.output)))
+                                                        return
+                                                    }
+                                                    self.rotateBackups(vmId: targetVm.id, agent: .hermes, keep: keepCount)
+                                                    emit(.complete, "迁移完成，报告已保存", reportURL.path)
+                                                    completion(.success(AgentToolResult(
+                                                        message: "已完成 OpenClaw 到 Hermes 迁移",
+                                                        output: """
+                                                        迁移前备份：\(backupPackage.path)
+                                                        迁移报告：\(reportURL.path)
+                                                        来源 VM：\(sourceVm.name)
+                                                        目标 VM：\(targetVm.name)
+                                                        冲突策略：\(options.skillConflictStrategy.displayName)
+                                                        Workspace 目标：\(options.workspaceTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "默认" : options.workspaceTarget)
+
+                                                        [dry-run]
+                                                        \(dryRunCommandResult.output)
+
+                                                        [migrate]
+                                                        \(targetCommandResult.output)
+                                                        """
+                                                    )))
+                                                case .failure(let error):
+                                                    completion(.failure(error))
+                                                }
+                                            }
                                         case .failure(let error):
+                                            cleanupAll()
                                             completion(.failure(error))
                                         }
                                     }
@@ -562,6 +681,15 @@ final class AgentToolsService {
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         return try backupPackageDirectory(vmId: vmId, agent: agent)
             .appendingPathComponent("agent-data-\(formatter.string(from: Date())).tar.gz")
+    }
+
+    private func migrationReportURL(vmId: String, agent: AgentKind) throws -> URL {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        return try backupPackageDirectory(vmId: vmId, agent: agent)
+            .appendingPathComponent("openclaw-migration-\(formatter.string(from: Date())).txt")
     }
 
     func listBackupPackages(vmId: String, agent: AgentKind) throws -> [AgentBackupPackage] {
@@ -820,12 +948,16 @@ final class AgentToolsService {
         """
     }
 
-    private static func openClawToHermesMigrationCommand(inputPath: String) -> String {
+    private static func openClawToHermesDryRunCommand(inputPath: String,
+                                                      reportPath: String,
+                                                      options: AgentMigrationOptions) -> String {
         let workDir = (inputPath as NSString).deletingLastPathComponent + "/.tenbox-openclaw-to-hermes"
+        let flags = openClawMigrationFlags(options: options, includeYes: false)
         return """
         set -eu
         command -v hermes >/dev/null 2>&1 || { echo "缺少 Hermes 命令" >&2; exit 1; }
         input=\(shellQuote(inputPath))
+        report=\(shellQuote(reportPath))
         work=\(shellQuote(workDir))
         source_dir="$work/source"
         [ -f "$input" ] || { echo "找不到 OpenClaw 迁移包：$input" >&2; exit 1; }
@@ -833,15 +965,104 @@ final class AgentToolsService {
         mkdir -p "$source_dir"
         tar -xzf "$input" -C "$source_dir"
         [ -d "$source_dir/.openclaw" ] || { echo "迁移包缺少 .openclaw 目录" >&2; exit 1; }
-        hermes claw migrate --dry-run --source "$source_dir/.openclaw" --preset full --migrate-secrets
-        hermes claw migrate --source "$source_dir/.openclaw" --preset full --migrate-secrets --skill-conflict skip --yes
+        dry_log="$work/dry-run.txt"
+        dry_status=0
+        hermes claw migrate --dry-run --source "$source_dir/.openclaw" \(flags) > "$dry_log" 2>&1 || dry_status=$?
+        {
+          echo "===== OpenClaw -> Hermes dry-run $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
+          cat "$dry_log"
+          echo
+        } >> "$report"
+        \(limitedLogCommand(logVariable: "dry_log"))
+        [ "$dry_status" -eq 0 ] || exit "$dry_status"
+        rm -rf "$work"
+        """
+    }
+
+    private static func openClawToHermesMigrationCommand(inputPath: String,
+                                                        reportPath: String,
+                                                        options: AgentMigrationOptions) -> String {
+        let workDir = (inputPath as NSString).deletingLastPathComponent + "/.tenbox-openclaw-to-hermes"
+        let flags = openClawMigrationFlags(options: options, includeYes: true)
+        return """
+        set -eu
+        command -v hermes >/dev/null 2>&1 || { echo "缺少 Hermes 命令" >&2; exit 1; }
+        input=\(shellQuote(inputPath))
+        report=\(shellQuote(reportPath))
+        work=\(shellQuote(workDir))
+        source_dir="$work/source"
+        [ -f "$input" ] || { echo "找不到 OpenClaw 迁移包：$input" >&2; exit 1; }
+        rm -rf "$work"
+        mkdir -p "$source_dir"
+        tar -xzf "$input" -C "$source_dir"
+        [ -d "$source_dir/.openclaw" ] || { echo "迁移包缺少 .openclaw 目录" >&2; exit 1; }
+        migrate_log="$work/migrate.txt"
+        migrate_status=0
+        hermes claw migrate --source "$source_dir/.openclaw" \(flags) > "$migrate_log" 2>&1 || migrate_status=$?
+        {
+          echo "===== OpenClaw -> Hermes migrate $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
+          cat "$migrate_log"
+          echo
+        } >> "$report"
+        \(limitedLogCommand(logVariable: "migrate_log"))
+        [ "$migrate_status" -eq 0 ] || exit "$migrate_status"
         svc="$(\(serviceResolverCommand(agent: .hermes)))"
         if [ -n "$svc" ]; then
           XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user restart "$svc" >/dev/null 2>&1 || true
+          echo "重启服务：$svc" >> "$report"
         fi
         rm -rf "$work"
+        health_log="$(mktemp)"
+        (
         \(healthStatusCommand(agent: .hermes))
+        ) > "$health_log" 2>&1 || true
+        cat "$health_log"
+        {
+          echo "===== Hermes health ====="
+          cat "$health_log"
+          echo
+        } >> "$report"
+        rm -f "$health_log"
         """
+    }
+
+    private static func openClawMigrationFlags(options: AgentMigrationOptions, includeYes: Bool) -> String {
+        var flags = [
+            "--preset", "full",
+            "--migrate-secrets",
+            "--skill-conflict", options.skillConflictStrategy.rawValue
+        ].map(shellQuote).joined(separator: " ")
+
+        let workspaceTarget = options.workspaceTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !workspaceTarget.isEmpty {
+            flags += " --workspace-target \(shellQuote(workspaceTarget))"
+        }
+        if includeYes {
+            flags += " --yes"
+        }
+        return flags
+    }
+
+    private static func limitedLogCommand(logVariable: String) -> String {
+        """
+        line_count="$(wc -l < "$\(logVariable)" | tr -d ' ')"
+        if [ "${line_count:-0}" -gt 160 ]; then
+          sed -n '1,80p' "$\(logVariable)"
+          echo "... 输出已截断，完整内容见迁移报告 ..."
+          tail -n 80 "$\(logVariable)"
+        else
+          cat "$\(logVariable)"
+        fi
+        """
+    }
+
+    private static func compactMigrationOutput(_ output: String) -> String? {
+        let lines = output
+            .split(whereSeparator: { $0.isNewline })
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return nil }
+        return lines.prefix(8).joined(separator: "\n")
     }
 
     private static func agentExcludeArgs(_ agent: AgentKind, scope: AgentProfileExportScope) -> String {

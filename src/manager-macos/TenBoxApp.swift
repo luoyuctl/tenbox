@@ -500,6 +500,8 @@ class AppState: ObservableObject {
     }
 
     func migrateOpenClawToHermes(sourceVmId: String, targetVmId: String,
+                                 options: AgentMigrationOptions = AgentMigrationOptions(),
+                                 progress: @escaping (AgentMigrationProgress) -> Void = { _ in },
                                  completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
         guard sourceVmId != targetVmId else {
             completion(.failure(ConsoleCommandError("来源 VM 和目标 VM 不能相同")))
@@ -548,7 +550,9 @@ class AppState: ObservableObject {
                                            targetVm: targetVm,
                                            targetSession: targetSession,
                                            appState: self,
+                                           options: options,
                                            keepCount: agentBackupSchedule(vmId: targetVmId, agent: .hermes).keepCount,
+                                           progress: progress,
                                            completion: completion)
     }
 

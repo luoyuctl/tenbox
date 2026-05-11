@@ -20,6 +20,9 @@ struct AgentToolsSheet: View {
     @State private var showsAdvancedActions = false
     @State private var showsAllBackups = false
     @State private var selectedOpenClawSourceVmId: String?
+    @State private var migrationSkillConflictStrategy: AgentSkillConflictStrategy = .skip
+    @State private var migrationWorkspaceTarget = AgentMigrationOptions().workspaceTarget
+    @State private var migrationProgress: [AgentMigrationProgress] = []
 
     init(vmId: String, session: VmSession) {
         self.vmId = vmId
@@ -69,6 +72,10 @@ struct AgentToolsSheet: View {
                         }
                     }
 
+                    if runningOperation == .migrateOpenClaw || !migrationProgress.isEmpty {
+                        MigrationProgressView(items: migrationProgress)
+                    }
+
                     if let operationResult {
                         AgentOperationResultView(result: operationResult)
                         if let report = operationResult.healthReport, report.state != "ok" {
@@ -94,6 +101,7 @@ struct AgentToolsSheet: View {
         }
         .onChange(of: selectedAgent, perform: { _ in
             operationResult = nil
+            migrationProgress = []
             selectedBackupId = nil
             showsAllBackups = false
             loadSchedule()
@@ -415,7 +423,20 @@ struct AgentToolsSheet: View {
                 .disabled(!canMigrateOpenClaw)
             }
 
-            Text("会先从来源 VM 导出完整 OpenClaw 数据，再在当前 Hermes VM 中调用官方迁移命令。两个 VM 都需要运行且 Guest Agent 已连接。")
+            HStack(spacing: 10) {
+                Picker("技能冲突", selection: $migrationSkillConflictStrategy) {
+                    ForEach(AgentSkillConflictStrategy.allCases) { strategy in
+                        Text(strategy.displayName).tag(strategy)
+                    }
+                }
+                .help(migrationSkillConflictStrategy.help)
+
+                TextField("Workspace 目标", text: $migrationWorkspaceTarget)
+                    .textFieldStyle(.roundedBorder)
+                    .help("OpenClaw workspace 指令迁移到 Hermes 的目标目录；留空则交给 hermes 默认处理")
+            }
+
+            Text("会先备份目标 Hermes，导出完整 OpenClaw 用户数据，执行官方 dry-run 并把迁移报告保存到宿主机。两个 VM 都需要运行且 Guest Agent 已连接。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -639,8 +660,35 @@ struct AgentToolsSheet: View {
         guard let vm = vm else { return }
         let resolvedSourceVmId = sourceVmId ?? selectedOpenClawSourceVm?.id
         guard let resolvedSourceVmId else { return }
+        let workspaceTarget = migrationWorkspaceTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard workspaceTarget.isEmpty || workspaceTarget.hasPrefix("/") else {
+            operationResult = AgentOperationDisplay(
+                isSuccess: false,
+                title: "迁移失败",
+                summary: "Workspace 目标必须是绝对路径",
+                details: workspaceTarget,
+                revealPath: nil,
+                healthReport: nil
+            )
+            return
+        }
+        let options = AgentMigrationOptions(
+            skillConflictStrategy: migrationSkillConflictStrategy,
+            workspaceTarget: workspaceTarget
+        )
+        migrationProgress = []
         runOperation(.migrateOpenClaw) {
-            appState.migrateOpenClawToHermes(sourceVmId: resolvedSourceVmId, targetVmId: vm.id, completion: $0)
+            appState.migrateOpenClawToHermes(
+                sourceVmId: resolvedSourceVmId,
+                targetVmId: vm.id,
+                options: options,
+                progress: { item in
+                    DispatchQueue.main.async {
+                        migrationProgress.append(item)
+                    }
+                },
+                completion: $0
+            )
         }
     }
 
@@ -755,6 +803,9 @@ struct AgentToolsSheet: View {
                               revealPath: String? = nil,
                               _ action: (@escaping (Result<AgentToolResult, Error>) -> Void) -> Void) {
         operationResult = nil
+        if operation != .migrateOpenClaw {
+            migrationProgress = []
+        }
         runningOperation = operation
         action { result in
             DispatchQueue.main.async {
@@ -990,6 +1041,13 @@ private enum AgentToolOperation: String, CaseIterable, Identifiable {
         switch self {
         case .snapshotBackup, .restoreBackup, .diagnostics:
             return raw.split(whereSeparator: { $0.isNewline }).map(String.init).last
+        case .migrateOpenClaw:
+            let prefix = "迁移报告："
+            return raw
+                .split(whereSeparator: { $0.isNewline })
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+                .first { $0.hasPrefix(prefix) }
+                .map { String($0.dropFirst(prefix.count)) }
         default:
             return nil
         }
@@ -1025,7 +1083,7 @@ private enum PendingAgentConfirmation: Identifiable {
         case .importProfile(let url):
             return "导入会替换当前 Agent 数据。文件：\(url.lastPathComponent)"
         case .migrateOpenClaw:
-            return "迁移会先备份目标 Hermes 数据，再导入来源 OpenClaw 的用户数据、密钥、记忆、技能和兼容配置。"
+            return "迁移会先备份目标 Hermes 数据，执行 dry-run 预检，再导入来源 OpenClaw 的用户数据、密钥、记忆、技能和兼容配置。"
         case .restoreBackup(let package):
             return "恢复会用选中的备份覆盖当前 Agent 数据。文件：\(package.filename)"
         case .resetConfig:
@@ -1101,6 +1159,53 @@ private struct BackupPackageRow: View {
 
     private static func sizeText(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}
+
+private struct MigrationProgressView: View {
+    let items: [AgentMigrationProgress]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("迁移进度")
+                .font(.headline)
+
+            if items.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("准备迁移...")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(items) { item in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: item.step == .complete ? "checkmark.circle.fill" : "circle.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(item.step == .complete ? Color.green : Color.accentColor)
+                                .padding(.top, 5)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(item.step.title)：\(item.message)")
+                                    .font(.caption)
+                                    .textSelection(.enabled)
+                                if let detail = item.detail, !detail.isEmpty {
+                                    Text(detail)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(4)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.accentColor.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
