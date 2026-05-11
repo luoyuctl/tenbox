@@ -505,7 +505,14 @@ void RuntimeControlService::AttachVm(Vm* vm) {
 
     if (vm_) {
         console_port_->SetInputCallback([vm](const uint8_t* data, size_t size) {
-            vm->InjectConsoleBytes(data, size);
+            static constexpr size_t kConsoleInputChunk = 64;
+            for (size_t off = 0; off < size; off += kConsoleInputChunk) {
+                size_t chunk = std::min(kConsoleInputChunk, size - off);
+                vm->InjectConsoleBytes(data + off, chunk);
+                if (off + chunk < size) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                }
+            }
         });
 
         input_port_->SetKeyEventCallback([vm](const KeyboardEvent& ev) {
