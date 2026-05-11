@@ -33,6 +33,11 @@ struct AgentBackupPackage: Identifiable, Equatable {
     var filename: String { url.lastPathComponent }
 }
 
+private enum AgentProfileExportScope: String {
+    case migration
+    case backup
+}
+
 struct AgentBackupSchedule: Codable, Equatable {
     static let defaultHour = 3
     static let defaultMinute = 0
@@ -91,7 +96,7 @@ final class AgentToolsService {
             let guestPackage = "/mnt/shared/\(share.tag)/\(packageName)"
             let command = Self.withSharedFolderReady(
                 tag: share.tag,
-                body: Self.profileExportCommand(agent: agent, outputPath: guestPackage)
+                body: Self.profileExportCommand(agent: agent, outputPath: guestPackage, scope: .migration)
             )
 
             session.runGuestAgentCommand(command, timeout: 420) { result in
@@ -322,6 +327,92 @@ final class AgentToolsService {
         }
     }
 
+    func migrateOpenClawToHermes(sourceVm: VmInfo, sourceSession: VmSession,
+                                 targetVm: VmInfo, targetSession: VmSession,
+                                 appState: AppState,
+                                 keepCount: Int = AgentBackupSchedule.defaultKeepCount,
+                                 completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        do {
+            let backupPackage = try backupPackageURL(vmId: targetVm.id, agent: .hermes)
+            withBackupShare(vmId: targetVm.id, appState: appState) { backupShare, backupCleanup in
+                withOperationShare(vmIds: [sourceVm.id, targetVm.id], appState: appState) { share, cleanup in
+                    let cleanupAll = {
+                        cleanup()
+                        backupCleanup()
+                    }
+                    let guestBackup = "/mnt/shared/\(backupShare.tag)/hermes/\(backupPackage.lastPathComponent)"
+                    let backupCommand = Self.withSharedFolderReady(
+                        tag: backupShare.tag,
+                        body: "mkdir -p \(Self.shellQuote("/mnt/shared/\(backupShare.tag)/hermes"))\n" +
+                            Self.profileExportCommand(agent: .hermes, outputPath: guestBackup, scope: .backup)
+                    )
+
+                    targetSession.runGuestAgentCommand(backupCommand, timeout: 420) { backupResult in
+                        switch backupResult {
+                        case .success(let backupCommandResult):
+                            guard backupCommandResult.exitCode == 0 else {
+                                cleanupAll()
+                                completion(.failure(Self.makeError(backupCommandResult.output.isEmpty ? "Hermes 迁移前备份失败" : backupCommandResult.output)))
+                                return
+                            }
+
+                            let archivePath = "/mnt/shared/\(share.tag)/openclaw-source.tar.gz"
+                            let exportCommand = Self.withSharedFolderReady(
+                                tag: share.tag,
+                                body: Self.openClawMigrationSourceExportCommand(outputPath: archivePath)
+                            )
+                            sourceSession.runGuestAgentCommand(exportCommand, timeout: 420) { sourceResult in
+                                switch sourceResult {
+                                case .success(let sourceCommandResult):
+                                    guard sourceCommandResult.exitCode == 0 else {
+                                        cleanupAll()
+                                        completion(.failure(Self.makeError(sourceCommandResult.output.isEmpty ? "OpenClaw 数据导出失败" : sourceCommandResult.output)))
+                                        return
+                                    }
+
+                                    let migrateCommand = Self.withSharedFolderReady(
+                                        tag: share.tag,
+                                        body: Self.openClawToHermesMigrationCommand(inputPath: archivePath)
+                                    )
+                                    targetSession.runGuestAgentCommand(migrateCommand, timeout: 600) { targetResult in
+                                        cleanupAll()
+                                        switch targetResult {
+                                        case .success(let targetCommandResult):
+                                            guard targetCommandResult.exitCode == 0 else {
+                                                completion(.failure(Self.makeError(targetCommandResult.output.isEmpty ? "OpenClaw 到 Hermes 迁移失败" : targetCommandResult.output)))
+                                                return
+                                            }
+                                            self.rotateBackups(vmId: targetVm.id, agent: .hermes, keep: keepCount)
+                                            completion(.success(AgentToolResult(
+                                                message: "已完成 OpenClaw 到 Hermes 迁移",
+                                                output: "迁移前备份：\(backupPackage.path)\n来源 VM：\(sourceVm.name)\n目标 VM：\(targetVm.name)\n\(targetCommandResult.output)"
+                                            )))
+                                        case .failure(let error):
+                                            completion(.failure(error))
+                                        }
+                                    }
+                                case .failure(let error):
+                                    cleanupAll()
+                                    completion(.failure(error))
+                                }
+                            }
+                        case .failure(let error):
+                            cleanupAll()
+                            completion(.failure(error))
+                        }
+                    }
+                } failure: { error in
+                    backupCleanup()
+                    completion(.failure(error))
+                }
+            } failure: { error in
+                completion(.failure(error))
+            }
+        } catch {
+            completion(.failure(error))
+        }
+    }
+
     private func runHealthCommand(vm: VmInfo, session: VmSession, appState: AppState, agent: AgentKind,
                                   command: String, successMessage: String,
                                   completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
@@ -384,17 +475,28 @@ final class AgentToolsService {
     private func withOperationShare(vmId: String, appState: AppState,
                                     perform: (SharedFolder, @escaping () -> Void) -> Void,
                                     failure: (Error) -> Void) {
+        withOperationShare(vmIds: [vmId], appState: appState, perform: perform, failure: failure)
+    }
+
+    private func withOperationShare(vmIds: [String], appState: AppState,
+                                    perform: (SharedFolder, @escaping () -> Void) -> Void,
+                                    failure: (Error) -> Void) {
         do {
             let base = try operationBaseDirectory()
             let tag = "tenbox-agent-ops-\(UUID().uuidString.prefix(8).lowercased())"
-            let dir = base.appendingPathComponent("\(vmId)-\(tag)", isDirectory: true)
+            let dirName = "\(vmIds.joined(separator: "-"))-\(tag)"
+            let dir = base.appendingPathComponent(dirName, isDirectory: true)
             try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
             let share = SharedFolder(tag: tag, hostPath: dir.path, readonly: false)
-            appState.addRuntimeSharedFolder(share, toVm: vmId)
+            for vmId in vmIds {
+                appState.addRuntimeSharedFolder(share, toVm: vmId)
+            }
 
             let cleanup: () -> Void = { [weak appState, weak self] in
                 DispatchQueue.main.async {
-                    appState?.removeRuntimeSharedFolder(tag: tag, fromVm: vmId)
+                    for vmId in vmIds {
+                        appState?.removeRuntimeSharedFolder(tag: tag, fromVm: vmId)
+                    }
                     try? self?.fileManager.removeItem(at: dir)
                 }
             }
@@ -493,9 +595,10 @@ final class AgentToolsService {
         }
     }
 
-    private static func profileExportCommand(agent: AgentKind, outputPath: String) -> String {
+    private static func profileExportCommand(agent: AgentKind, outputPath: String,
+                                             scope: AgentProfileExportScope = .backup) -> String {
         let relPath = agentDataRelativePath(agent)
-        let excludes = agentExcludeArgs(agent)
+        let excludes = agentExcludeArgs(agent, scope: scope)
         let outDir = (outputPath as NSString).deletingLastPathComponent
         let workDir = "\(outDir)/.tenbox-profile-work"
         return """
@@ -513,6 +616,7 @@ final class AgentToolsService {
           "format": "tenbox-agent-profile",
           "format_version": 2,
           "agent_type": "\(agent.rawValue)",
+          "export_scope": "\(scope.rawValue)",
           "archive": "files.tar.gz"
         }
         EOF
@@ -560,7 +664,19 @@ final class AgentToolsService {
         tar --touch -xzf "$input" -C "$work"
         [ -f "$work/manifest.json" ] || { echo "导入包缺少 manifest.json" >&2; exit 1; }
         [ -f "$work/files.tar.gz" ] || { echo "导入包缺少 files.tar.gz" >&2; exit 1; }
-        pkg_agent="$(awk -F\\" '/agent_type/ {print $4; exit}' "$work/manifest.json")"
+        pkg_agent=""
+        if command -v python3 >/dev/null 2>&1; then
+          pkg_agent="$(python3 - "$work/manifest.json" <<'PY'
+        import json
+        import sys
+        with open(sys.argv[1], "r", encoding="utf-8") as f:
+            print(json.load(f).get("agent_type", ""))
+        PY
+          )" || pkg_agent=""
+        fi
+        if [ -z "$pkg_agent" ]; then
+          pkg_agent="$(awk -F\\" '/agent_type/ {print $4; exit}' "$work/manifest.json")"
+        fi
         [ "$pkg_agent" = "\(agent.rawValue)" ] || { echo "导入包属于 $pkg_agent，不是 \(agent.rawValue)" >&2; exit 1; }
         backup=""
         if [ -e "$target" ]; then
@@ -580,11 +696,10 @@ final class AgentToolsService {
     }
 
     private static func healthStatusCommand(agent: AgentKind) -> String {
-        let service = serviceName(agent)
         let gatewayPort = agent == .openclaw ? "18789" : ""
         return """
         set -u
-        svc=\(shellQuote(service))
+        svc="$(\(serviceResolverCommand(agent: agent)))"
         agent=\(shellQuote(agent.rawValue))
         port=\(shellQuote(gatewayPort))
         if XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user is-active --quiet "$svc" 2>/dev/null; then service_state=ok; else service_state=error; fi
@@ -606,7 +721,9 @@ final class AgentToolsService {
 
     private static func restartCommand(agent: AgentKind) -> String {
         """
-        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user restart \(shellQuote(serviceName(agent)))
+        svc="$(\(serviceResolverCommand(agent: agent)))"
+        [ -n "$svc" ] || { echo "Agent 服务未安装" >&2; exit 1; }
+        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user restart "$svc"
         \(healthStatusCommand(agent: agent))
         """
     }
@@ -628,39 +745,30 @@ final class AgentToolsService {
         case .hermes:
             return """
             set -eu
-            mkdir -p "$HOME/.hermes"
-            cat > "$HOME/.hermes/config.yaml" <<'EOF'
-            model:
-              default: "default"
-              provider: "custom"
-              base_url: "http://10.0.2.3/v1"
-
-            terminal:
-              backend: local
-
-            approvals:
-              mode: off
-              timeout: 60
-
-            display:
-              streaming: true
-            EOF
+            command -v hermes >/dev/null 2>&1 || { echo "缺少 Hermes 命令" >&2; exit 1; }
+            hermes config set model.default default >/dev/null
+            hermes config set model.provider custom >/dev/null
+            hermes config set model.base_url http://10.0.2.3/v1 >/dev/null
+            hermes config set terminal.backend local >/dev/null
             \(healthStatusCommand(agent: agent))
             """
         case .openclaw:
             return """
             set -eu
             command -v openclaw >/dev/null 2>&1 || { echo "缺少 OpenClaw 命令" >&2; exit 1; }
-            openclaw config set models.providers.tenbox '{"baseUrl":"http://10.0.2.3/v1","apiKey":"tenbox","api":"openai-completions","models":[{"id":"default","name":"Default (TenBox Proxy)","reasoning":false,"input":["text","image"],"contextWindow":200000,"maxTokens":65536,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}}]}' >/dev/null
+            tenbox_provider='{"baseUrl":"http://10.0.2.3/v1","apiKey":"tenbox","api":"openai-completions","models":[{"id":"default","name":"Default (TenBox Proxy)","reasoning":false,"input":["text","image"],"contextWindow":200000,"maxTokens":65536,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}}]}'
+            openclaw config set models.providers.tenbox "$tenbox_provider" --strict-json --merge >/dev/null 2>&1 || openclaw config set models.providers.tenbox "$tenbox_provider" >/dev/null
             openclaw config set models.mode merge >/dev/null
-            openclaw config set agents.defaults '{"model":{"primary":"tenbox/default"},"compaction":{"mode":"safeguard"},"workspace":"'"$HOME"'/.openclaw/workspace","models":{"tenbox/default":{}}}' >/dev/null
+            openclaw config set agents.defaults.model.primary tenbox/default >/dev/null
+            openclaw config set agents.defaults.compaction.mode safeguard >/dev/null
+            openclaw config set agents.defaults.workspace "$HOME/.openclaw/workspace" >/dev/null
+            openclaw config set agents.defaults.models.tenbox/default '{"alias":"TenBox Proxy"}' --strict-json --merge >/dev/null 2>&1 || openclaw config set agents.defaults.models.tenbox/default '{"alias":"TenBox Proxy"}' >/dev/null
             \(healthStatusCommand(agent: agent))
             """
         }
     }
 
     private static func diagnosticsCommand(agent: AgentKind, outputDir: String) -> String {
-        let service = serviceName(agent)
         return """
         set -eu
         out=\(shellQuote(outputDir))/tenbox-agent-diagnostics-\(agent.rawValue)-$(date -u +%Y%m%d%H%M%S).tar.gz
@@ -668,10 +776,16 @@ final class AgentToolsService {
         rm -rf "$tmp"
         mkdir -p "$tmp"
         \(healthStatusCommand(agent: agent)) > "$tmp/health.json" 2>&1 || true
-        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user status \(shellQuote(service)) --no-pager > "$tmp/service.txt" 2>&1 || true
-        journalctl --user -u \(shellQuote(service)) -n 200 --no-pager > "$tmp/journal.txt" 2>&1 || true
+        svc="$(\(serviceResolverCommand(agent: agent)))"
+        if [ -n "$svc" ]; then
+          XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user status "$svc" --no-pager > "$tmp/service.txt" 2>&1 || true
+          journalctl --user -u "$svc" -n 200 --no-pager > "$tmp/journal.txt" 2>&1 || true
+        else
+          echo "Agent 服务未安装" > "$tmp/service.txt"
+          echo "Agent 服务未安装" > "$tmp/journal.txt"
+        fi
         df -h > "$tmp/disk.txt" 2>&1 || true
-        sed -Ei 's/(sk-[A-Za-z0-9_-]{8})[A-Za-z0-9_-]+/\\1***/g; s/(api[_-]?key[=: ]+)[^ ]+/\\1***/Ig' "$tmp"/*.txt "$tmp"/*.json 2>/dev/null || true
+        sed -Ei 's/(sk-[A-Za-z0-9_-]{8})[A-Za-z0-9_-]+/\\1***/g; s/(authorization:[[:space:]]*bearer[[:space:]]+)[^[:space:]]+/\\1***/Ig; s/((api[_-]?key|token|secret|password)[=: ]+)[^ ]+/\\1***/Ig' "$tmp"/*.txt "$tmp"/*.json 2>/dev/null || true
         tar -czf "$out" -C "$tmp" .
         rm -rf "$tmp"
         echo "$out"
@@ -685,24 +799,73 @@ final class AgentToolsService {
         }
     }
 
-    private static func agentExcludeArgs(_ agent: AgentKind) -> String {
+    private static func openClawMigrationSourceExportCommand(outputPath: String) -> String {
+        let outDir = (outputPath as NSString).deletingLastPathComponent
+        let workDir = "\(outDir)/.tenbox-openclaw-migrate-source"
+        let excludes = agentExcludeArgs(.openclaw, scope: .migration)
+        return """
+        set -eu
+        home="${HOME:-/home/tenbox}"
+        src="$home/.openclaw"
+        out=\(shellQuote(outputPath))
+        work=\(shellQuote(workDir))
+        [ -d "$src" ] || { echo "OpenClaw 数据尚未初始化：$src" >&2; exit 1; }
+        rm -rf "$work" "$out"
+        mkdir -p "$work"
+        tar_status=0
+        (cd "$home" && tar --warning=no-file-changed --ignore-failed-read \(excludes) -czf "$out" ".openclaw") || tar_status=$?
+        [ "$tar_status" -le 1 ] || exit "$tar_status"
+        rm -rf "$work"
+        echo "$out"
+        """
+    }
+
+    private static func openClawToHermesMigrationCommand(inputPath: String) -> String {
+        let workDir = (inputPath as NSString).deletingLastPathComponent + "/.tenbox-openclaw-to-hermes"
+        return """
+        set -eu
+        command -v hermes >/dev/null 2>&1 || { echo "缺少 Hermes 命令" >&2; exit 1; }
+        input=\(shellQuote(inputPath))
+        work=\(shellQuote(workDir))
+        source_dir="$work/source"
+        [ -f "$input" ] || { echo "找不到 OpenClaw 迁移包：$input" >&2; exit 1; }
+        rm -rf "$work"
+        mkdir -p "$source_dir"
+        tar -xzf "$input" -C "$source_dir"
+        [ -d "$source_dir/.openclaw" ] || { echo "迁移包缺少 .openclaw 目录" >&2; exit 1; }
+        hermes claw migrate --dry-run --source "$source_dir/.openclaw" --preset full --migrate-secrets
+        hermes claw migrate --source "$source_dir/.openclaw" --preset full --migrate-secrets --skill-conflict skip --yes
+        svc="$(\(serviceResolverCommand(agent: .hermes)))"
+        if [ -n "$svc" ]; then
+          XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user restart "$svc" >/dev/null 2>&1 || true
+        fi
+        rm -rf "$work"
+        \(healthStatusCommand(agent: .hermes))
+        """
+    }
+
+    private static func agentExcludeArgs(_ agent: AgentKind, scope: AgentProfileExportScope) -> String {
         switch agent {
         case .hermes:
-            return [
+            let excludes = [
                 "--exclude", ".hermes/logs",
+                "--exclude", ".hermes/cache",
                 "--exclude", ".hermes/image_cache",
                 "--exclude", ".hermes/audio_cache",
                 "--exclude", ".hermes/hermes-agent",
                 "--exclude", ".hermes/bin",
                 "--exclude", ".hermes/gateway.pid",
                 "--exclude", ".hermes/gateway.lock",
-            ].map(shellQuote).joined(separator: " ")
+            ]
+            return excludes.map(shellQuote).joined(separator: " ")
         case .openclaw:
-            return [
+            let excludes = [
                 "--exclude", ".openclaw/cache",
                 "--exclude", ".openclaw/.cache",
                 "--exclude", ".openclaw/workspace/.cache",
-            ].map(shellQuote).joined(separator: " ")
+                "--exclude", ".openclaw/logs",
+            ]
+            return excludes.map(shellQuote).joined(separator: " ")
         }
     }
 
@@ -711,6 +874,20 @@ final class AgentToolsService {
         case .hermes: return "hermes-gateway.service"
         case .openclaw: return "openclaw-gateway.service"
         }
+    }
+
+    private static func serviceResolverCommand(agent: AgentKind) -> String {
+        let pattern: String
+        switch agent {
+        case .hermes:
+            pattern = "hermes-gateway*.service"
+        case .openclaw:
+            pattern = "openclaw-gateway*.service"
+        }
+        let preferred = serviceName(agent)
+        return """
+        { preferred=\(shellQuote(preferred)); pattern=\(shellQuote(pattern)); if XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user status "$preferred" >/dev/null 2>&1; then printf '%s' "$preferred"; else XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user list-units --all "$pattern" --no-legend 2>/dev/null | awk 'NR==1 {print $1; exit}'; fi; }
+        """
     }
 
     private static func shellQuote(_ value: String) -> String {

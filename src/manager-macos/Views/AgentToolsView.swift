@@ -19,6 +19,7 @@ struct AgentToolsSheet: View {
     @State private var selectedBackupId: String?
     @State private var showsAdvancedActions = false
     @State private var showsAllBackups = false
+    @State private var selectedOpenClawSourceVmId: String?
 
     init(vmId: String, session: VmSession) {
         self.vmId = vmId
@@ -89,6 +90,7 @@ struct AgentToolsSheet: View {
             loadSchedule()
             refreshBackupList()
             refreshBackupSummary()
+            refreshMigrationSourceSelection()
         }
         .onChange(of: selectedAgent, perform: { _ in
             operationResult = nil
@@ -97,6 +99,7 @@ struct AgentToolsSheet: View {
             loadSchedule()
             refreshBackupList()
             refreshBackupSummary()
+            refreshMigrationSourceSelection()
         })
         .alert(pendingConfirmation?.title ?? "", isPresented: confirmationPresented) {
             Button("取消", role: .cancel) {
@@ -349,9 +352,28 @@ struct AgentToolsSheet: View {
         return Array(backupPackages.prefix(3))
     }
 
+    private var openClawMigrationCandidates: [VmInfo] {
+        appState.vms
+            .filter { $0.id != vmId && $0.state == .running }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var selectedOpenClawSourceVm: VmInfo? {
+        guard let selectedOpenClawSourceVmId else { return nil }
+        return openClawMigrationCandidates.first { $0.id == selectedOpenClawSourceVmId }
+    }
+
+    private var canMigrateOpenClaw: Bool {
+        selectedAgent == .hermes && canRun && selectedOpenClawSourceVm != nil
+    }
+
     private var advancedActionsPanel: some View {
         DisclosureGroup(isExpanded: $showsAdvancedActions) {
             VStack(alignment: .leading, spacing: 10) {
+                if selectedAgent == .hermes {
+                    openClawMigrationPanel
+                    Divider()
+                }
                 operationSection(
                     title: "高级操作",
                     operations: [.exportProfile, .importProfile, .restartAgent, .resetConfig, .diagnostics]
@@ -368,6 +390,35 @@ struct AgentToolsSheet: View {
         .padding(12)
         .background(.quaternary.opacity(0.45))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var openClawMigrationPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("从 OpenClaw 迁移")
+                .font(.headline)
+
+            HStack(spacing: 10) {
+                Picker("来源 VM", selection: $selectedOpenClawSourceVmId) {
+                    Text("选择运行中的 OpenClaw VM").tag(String?.none)
+                    ForEach(openClawMigrationCandidates) { vm in
+                        Text(vm.name).tag(Optional(vm.id))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+
+                Button {
+                    guard let sourceVm = selectedOpenClawSourceVm else { return }
+                    pendingConfirmation = .migrateOpenClaw(sourceVm.id)
+                } label: {
+                    Label("自动迁移", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(!canMigrateOpenClaw)
+            }
+
+            Text("会先从来源 VM 导出完整 OpenClaw 数据，再在当前 Hermes VM 中调用官方迁移命令。两个 VM 都需要运行且 Guest Agent 已连接。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func repairSuggestionPanel(report: HealthReport) -> some View {
@@ -495,6 +546,8 @@ struct AgentToolsSheet: View {
             exportProfile()
         case .importProfile:
             importProfile()
+        case .migrateOpenClaw:
+            migrateOpenClawToHermes()
         case .snapshotBackup:
             snapshotBackup()
         case .restoreBackup:
@@ -573,10 +626,21 @@ struct AgentToolsSheet: View {
             runOperation(.importProfile) {
                 appState.importAgentProfile(vmId: vm.id, agent: selectedAgent, sourceURL: url, completion: $0)
             }
+        case .migrateOpenClaw(let sourceVmId):
+            migrateOpenClawToHermes(sourceVmId: sourceVmId)
         case .restoreBackup(let package):
             restoreBackup(package)
         case .resetConfig:
             resetConfig()
+        }
+    }
+
+    private func migrateOpenClawToHermes(sourceVmId: String? = nil) {
+        guard let vm = vm else { return }
+        let resolvedSourceVmId = sourceVmId ?? selectedOpenClawSourceVm?.id
+        guard let resolvedSourceVmId else { return }
+        runOperation(.migrateOpenClaw) {
+            appState.migrateOpenClawToHermes(sourceVmId: resolvedSourceVmId, targetVmId: vm.id, completion: $0)
         }
     }
 
@@ -664,6 +728,15 @@ struct AgentToolsSheet: View {
             return
         }
         selectedBackupId = backupPackages.first?.id
+    }
+
+    private func refreshMigrationSourceSelection() {
+        let candidates = openClawMigrationCandidates
+        if let selectedOpenClawSourceVmId,
+           candidates.contains(where: { $0.id == selectedOpenClawSourceVmId }) {
+            return
+        }
+        selectedOpenClawSourceVmId = candidates.first?.id
     }
 
     private func revealBackup(_ package: AgentBackupPackage) {
@@ -788,6 +861,9 @@ struct AgentToolsSheet: View {
             ("Command timed out", "操作超时"),
             ("Failed to send guest agent command", "发送 Guest Agent 命令失败"),
             ("Agent data is not initialized", "Agent 数据尚未初始化"),
+            ("OpenClaw 数据尚未初始化", "OpenClaw 数据尚未初始化"),
+            ("缺少 Hermes 命令", "目标 VM 缺少 Hermes 命令"),
+            ("缺少 OpenClaw 命令", "VM 缺少 OpenClaw 命令"),
             ("No backup package found", "没有找到可恢复的备份"),
             ("package not found", "找不到导入包"),
             ("manifest.json missing", "导入包缺少 manifest.json"),
@@ -808,6 +884,7 @@ struct AgentToolsSheet: View {
 private enum AgentToolOperation: String, CaseIterable, Identifiable {
     case exportProfile
     case importProfile
+    case migrateOpenClaw
     case snapshotBackup
     case restoreBackup
     case healthCheck
@@ -821,6 +898,7 @@ private enum AgentToolOperation: String, CaseIterable, Identifiable {
         switch self {
         case .exportProfile: return "导出迁移包"
         case .importProfile: return "导入"
+        case .migrateOpenClaw: return "OpenClaw 迁移"
         case .snapshotBackup: return "立即备份"
         case .restoreBackup: return "恢复备份"
         case .healthCheck: return "一键诊断"
@@ -834,6 +912,7 @@ private enum AgentToolOperation: String, CaseIterable, Identifiable {
         switch self {
         case .exportProfile: return "square.and.arrow.up"
         case .importProfile: return "square.and.arrow.down"
+        case .migrateOpenClaw: return "arrow.triangle.2.circlepath"
         case .snapshotBackup: return "clock.arrow.circlepath"
         case .restoreBackup: return "arrow.uturn.backward"
         case .healthCheck: return "stethoscope"
@@ -847,6 +926,7 @@ private enum AgentToolOperation: String, CaseIterable, Identifiable {
         switch self {
         case .exportProfile: return "导出当前 Agent 数据"
         case .importProfile: return "从归档包导入 Agent 数据"
+        case .migrateOpenClaw: return "从运行中的 OpenClaw VM 迁移到当前 Hermes VM"
         case .snapshotBackup: return "创建一份主机侧备份"
         case .restoreBackup: return "用选中的备份恢复 Agent 数据"
         case .healthCheck: return "检查 Agent 运行状态"
@@ -860,6 +940,7 @@ private enum AgentToolOperation: String, CaseIterable, Identifiable {
         switch self {
         case .exportProfile: return "导出完成"
         case .importProfile: return "导入完成"
+        case .migrateOpenClaw: return "迁移完成"
         case .snapshotBackup: return "备份完成"
         case .restoreBackup: return "恢复完成"
         case .healthCheck: return "诊断完成"
@@ -873,6 +954,7 @@ private enum AgentToolOperation: String, CaseIterable, Identifiable {
         switch self {
         case .exportProfile: return "导出失败"
         case .importProfile: return "导入失败"
+        case .migrateOpenClaw: return "迁移失败"
         case .snapshotBackup: return "备份失败"
         case .restoreBackup: return "恢复失败"
         case .healthCheck: return "诊断失败"
@@ -893,6 +975,7 @@ private enum AgentToolOperation: String, CaseIterable, Identifiable {
         switch self {
         case .exportProfile: return "正在导出 \(agent.displayName) 数据..."
         case .importProfile: return "正在导入 \(agent.displayName) 数据..."
+        case .migrateOpenClaw: return "正在从 OpenClaw VM 迁移到 Hermes..."
         case .snapshotBackup: return "正在备份 \(agent.displayName) 数据..."
         case .restoreBackup: return "正在恢复 \(agent.displayName) 备份..."
         case .healthCheck: return "正在诊断 \(agent.displayName) 状态..."
@@ -915,12 +998,14 @@ private enum AgentToolOperation: String, CaseIterable, Identifiable {
 
 private enum PendingAgentConfirmation: Identifiable {
     case importProfile(URL)
+    case migrateOpenClaw(String)
     case restoreBackup(AgentBackupPackage)
     case resetConfig
 
     var id: String {
         switch self {
         case .importProfile(let url): return "import-\(url.path)"
+        case .migrateOpenClaw(let sourceVmId): return "migrate-openclaw-\(sourceVmId)"
         case .restoreBackup(let package): return "restore-\(package.id)"
         case .resetConfig: return "reset"
         }
@@ -929,6 +1014,7 @@ private enum PendingAgentConfirmation: Identifiable {
     var title: String {
         switch self {
         case .importProfile: return "确认导入 Agent 数据？"
+        case .migrateOpenClaw: return "确认从 OpenClaw VM 自动迁移？"
         case .restoreBackup: return "确认恢复这个备份？"
         case .resetConfig: return "确认重置配置？"
         }
@@ -938,6 +1024,8 @@ private enum PendingAgentConfirmation: Identifiable {
         switch self {
         case .importProfile(let url):
             return "导入会替换当前 Agent 数据。文件：\(url.lastPathComponent)"
+        case .migrateOpenClaw:
+            return "迁移会先备份目标 Hermes 数据，再导入来源 OpenClaw 的用户数据、密钥、记忆、技能和兼容配置。"
         case .restoreBackup(let package):
             return "恢复会用选中的备份覆盖当前 Agent 数据。文件：\(package.filename)"
         case .resetConfig:
@@ -948,6 +1036,7 @@ private enum PendingAgentConfirmation: Identifiable {
     var confirmTitle: String {
         switch self {
         case .importProfile: return "导入"
+        case .migrateOpenClaw: return "迁移"
         case .restoreBackup: return "恢复"
         case .resetConfig: return "重置"
         }

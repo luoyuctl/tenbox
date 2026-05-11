@@ -507,7 +507,8 @@ void RuntimeControlService::AttachVm(Vm* vm) {
         console_port_->SetInputCallback([vm](const uint8_t* data, size_t size) {
             static constexpr size_t kConsoleInputChunk = 64;
             for (size_t off = 0; off < size; off += kConsoleInputChunk) {
-                size_t chunk = std::min(kConsoleInputChunk, size - off);
+                size_t remaining = size - off;
+                size_t chunk = remaining < kConsoleInputChunk ? remaining : kConsoleInputChunk;
                 vm->InjectConsoleBytes(data + off, chunk);
                 if (off + chunk < size) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(2));

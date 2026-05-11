@@ -499,6 +499,59 @@ class AppState: ObservableObject {
                                  sourceURL: sourceURL, completion: completion)
     }
 
+    func migrateOpenClawToHermes(sourceVmId: String, targetVmId: String,
+                                 completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
+        guard sourceVmId != targetVmId else {
+            completion(.failure(ConsoleCommandError("来源 VM 和目标 VM 不能相同")))
+            return
+        }
+        guard let sourceVm = vms.first(where: { $0.id == sourceVmId }) else {
+            completion(.failure(ConsoleCommandError("找不到 OpenClaw 来源 VM")))
+            return
+        }
+        guard let targetVm = vms.first(where: { $0.id == targetVmId }) else {
+            completion(.failure(ConsoleCommandError("找不到 Hermes 目标 VM")))
+            return
+        }
+        guard sourceVm.state == .running else {
+            completion(.failure(ConsoleCommandError("OpenClaw 来源 VM 未运行")))
+            return
+        }
+        guard targetVm.state == .running else {
+            completion(.failure(ConsoleCommandError("Hermes 目标 VM 未运行")))
+            return
+        }
+
+        let sourceSession = getOrCreateSession(for: sourceVmId)
+        let targetSession = getOrCreateSession(for: targetVmId)
+        if !sourceSession.connected || !sourceSession.ipcClient.isConnected {
+            sourceSession.connectIfNeeded()
+            completion(.failure(ConsoleCommandError("OpenClaw 来源 VM 执行通道未连接，请稍后重试")))
+            return
+        }
+        guard sourceSession.guestAgentConnected else {
+            completion(.failure(ConsoleCommandError("OpenClaw 来源 VM Guest Agent 未连接")))
+            return
+        }
+        if !targetSession.connected || !targetSession.ipcClient.isConnected {
+            targetSession.connectIfNeeded()
+            completion(.failure(ConsoleCommandError("Hermes 目标 VM 执行通道未连接，请稍后重试")))
+            return
+        }
+        guard targetSession.guestAgentConnected else {
+            completion(.failure(ConsoleCommandError("Hermes 目标 VM Guest Agent 未连接")))
+            return
+        }
+
+        agentTools.migrateOpenClawToHermes(sourceVm: sourceVm,
+                                           sourceSession: sourceSession,
+                                           targetVm: targetVm,
+                                           targetSession: targetSession,
+                                           appState: self,
+                                           keepCount: agentBackupSchedule(vmId: targetVmId, agent: .hermes).keepCount,
+                                           completion: completion)
+    }
+
     func agentBackupStatus(vmId: String, agent: AgentKind,
                            completion: @escaping (Result<AgentToolResult, Error>) -> Void) {
         guard let vm = vms.first(where: { $0.id == vmId }) else {
